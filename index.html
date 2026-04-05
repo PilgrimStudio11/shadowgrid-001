@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>P2P Mesh</title>
+  <title>Telegram‑like P2P</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
     body { background: #0a0a0a; color: #e0e0e0; height: 100vh; display: flex; justify-content: center; align-items: center; }
@@ -24,12 +24,20 @@
     .auth-container { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 24px; gap: 20px; }
     .auth-container input { padding: 14px; border-radius: 12px; border: none; background: #2c2c2e; color: white; font-size: 16px; }
     .auth-container button { background: #007aff; border: none; border-radius: 12px; padding: 14px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; }
-    .contact-list { flex: 1; overflow-y: auto; padding: 16px; }
-    .contact-item { background: #2c2c2e; padding: 12px; border-radius: 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-    .online-badge { width: 10px; height: 10px; border-radius: 10px; background: #34c759; margin-left: 8px; display: inline-block; }
-    .add-contact { margin: 16px; display: flex; flex-direction: column; gap: 8px; }
-    .add-contact input { padding: 12px; border-radius: 24px; border: none; background: #2c2c2e; color: white; }
-    .add-contact button { background: #007aff; border: none; border-radius: 24px; padding: 12px; font-weight: bold; }
+    .chat-list { flex: 1; overflow-y: auto; }
+    .chat-item { background: #2c2c2e; padding: 12px 16px; margin: 4px 8px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s; }
+    .chat-item:active { background: #3a3a3c; }
+    .chat-info { flex: 1; }
+    .chat-name { font-weight: 500; margin-bottom: 4px; }
+    .last-message { font-size: 12px; color: #8e8e93; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+    .chat-status { font-size: 11px; color: #8e8e93; }
+    .online-status { color: #34c759; }
+    .delete-chat { background: #ff3b30; padding: 8px 16px; border-radius: 12px; color: white; font-size: 14px; margin-left: 8px; cursor: pointer; }
+    .add-contact-panel { margin: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .search-row { display: flex; gap: 8px; }
+    .search-row input { flex: 1; padding: 12px; border-radius: 24px; border: none; background: #2c2c2e; color: white; }
+    .search-row button { background: #007aff; border: none; border-radius: 24px; padding: 0 20px; font-weight: bold; color: white; }
+    .qr-btn { background: #34c759; border: none; border-radius: 12px; padding: 12px; color: white; font-weight: bold; margin-top: 8px; cursor: pointer; }
     .video-call { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 1000; display: none; flex-direction: column; }
     .video-call.active { display: flex; }
     .remote-video { flex: 1; background: #000; }
@@ -38,18 +46,14 @@
     .local-video video { width: 100%; height: 100%; object-fit: cover; }
     .call-controls { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 30px; background: rgba(0,0,0,0.6); padding: 12px; }
     .call-controls button { background: #ff3b30; border: none; border-radius: 50%; width: 60px; height: 60px; font-size: 24px; color: white; cursor: pointer; }
-    .qr-popup { position: fixed; bottom: 20px; left: 20px; background: white; padding: 12px; border-radius: 16px; z-index: 200; text-align: center; max-width: 260px; }
-    .qr-popup canvas, .qr-popup img { width: 200px; height: 200px; }
-    .share-btn { background: #34c759; border: none; border-radius: 12px; padding: 12px; color: white; font-weight: bold; margin-top: 8px; cursor: pointer; }
+    .qr-popup { position: fixed; bottom: 20px; left: 20px; background: white; padding: 12px; border-radius: 16px; z-index: 200; text-align: center; }
     .hidden { display: none; }
     .network-info { font-size: 12px; color: #8e8e93; padding: 8px 16px; background: #2c2c2e; text-align: center; }
     .tab-bar { display: flex; background: #2c2c2e; border-top: 0.5px solid #3a3a3c; }
     .tab { flex: 1; text-align: center; padding: 12px; color: #8e8e93; font-weight: 500; cursor: pointer; }
     .tab.active { color: #007aff; border-bottom: 2px solid #007aff; }
-    .button-row { display: flex; gap: 8px; margin-top: 8px; }
-    .button-row button { flex: 1; }
   </style>
-  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </head>
@@ -58,34 +62,27 @@
   <!-- Экран авторизации -->
   <div id="authScreen" class="screen active">
     <div class="auth-container">
-      <h2 style="text-align:center">P2P Mesh</h2>
-      <input type="text" id="loginUsername" placeholder="Ваш ник">
+      <h2 style="text-align:center">P2P Telegram</h2>
+      <input type="text" id="loginUsername" placeholder="Ваш ник (латиница, цифры)">
       <input type="password" id="loginPassword" placeholder="Пароль">
-      <button id="loginBtn">Войти / Создать</button>
+      <button id="loginBtn">Войти / Зарегистрироваться</button>
       <div style="font-size:12px; color:#8e8e93; text-align:center;">Пароль остаётся на устройстве</div>
-      <button id="shareFileBtn" class="share-btn">📲 Поделиться приложением (AirDrop)</button>
+      <button id="shareAppQRBtn" class="qr-btn">📲 Поделиться приложением (QR)</button>
     </div>
   </div>
 
-  <!-- Главный экран -->
+  <!-- Главный экран (список чатов) -->
   <div id="mainScreen" class="screen">
     <div class="chat-header">
-      <div style="flex:1; font-weight:600;">Моя сеть</div>
-      <button id="shareAppBtn" class="share-btn">📲 Поделиться приложением</button>
+      <div style="flex:1; font-weight:600;">Чаты</div>
+      <button id="showInstallQRBtn" style="background:none; border:none; color:#007aff; font-size:20px;">📱 QR</button>
     </div>
     <div class="network-info" id="networkInfo"></div>
-    <div class="tab-bar">
-      <div class="tab active" data-tab="chats">Чаты</div>
-      <div class="tab" data-tab="contacts">Контакты</div>
-    </div>
-    <div id="chatsList" class="contact-list"></div>
-    <div id="contactsList" class="contact-list hidden"></div>
-    <div class="add-contact" id="addContactPanel">
-      <input type="text" id="searchNickInput" placeholder="Поиск по нику (Telegram-style)">
-      <button id="searchContactBtn">🔍 Найти</button>
-      <div class="button-row">
-        <button id="generateOfferBtn" class="share-btn">📡 Мой QR-оффер</button>
-        <button id="addManualBtn" class="share-btn">➕ Добавить вручную</button>
+    <div class="chat-list" id="chatList"></div>
+    <div class="add-contact-panel">
+      <div class="search-row">
+        <input type="text" id="searchNick" placeholder="Поиск по нику...">
+        <button id="searchBtn">Найти</button>
       </div>
     </div>
   </div>
@@ -120,15 +117,13 @@
 <script>
   // ---------------------------- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----------------------------
   let currentUser = null;
-  let contacts = [];        // { peerId, username, encryptionKey, peerInstance, online }
-  let activeContactId = null;
-  let messages = {};
+  let chats = [];          // { peerId, username, encryptionKey, peer, online, lastSeen, unread }
+  let messages = {};       // peerId -> [{text, own, time, delivered}]
+  let pendingMessages = []; // сообщения для офлайн-контактов
+  let currentChatPeerId = null;
   let currentCall = null;
   let localStream = null;
-  
-  // Распределённая таблица логинов (peerId → username), которую каждый узел хранит и синхронизирует
-  let loginRegistry = {};   // username -> peerId
-  let pendingSearchCallbacks = {}; // для ответов на поиск
+  let peer = null;          // PeerJS объект
 
   // ---------------------------- КРИПТОГРАФИЯ ----------------------------
   function deriveKeyFromPassword(password, salt) {
@@ -146,321 +141,239 @@
       const encrypted = parts.slice(1).join(':');
       const decrypted = CryptoJS.AES.decrypt(encrypted, CryptoJS.enc.Hex.parse(keyHex), { iv: iv });
       return decrypted.toString(CryptoJS.enc.Utf8);
-    } catch(e) { return "⚠️ Ошибка расшифровки"; }
+    } catch(e) { return "⚠️ Ошибка"; }
   }
 
   // ---------------------------- ХРАНЕНИЕ ----------------------------
-  function saveUserData() {
+  function saveData() {
     if (!currentUser) return;
     const data = {
       username: currentUser.username,
       peerId: currentUser.peerId,
       encryptionKey: currentUser.encryptionKey,
-      contacts: contacts.map(c => ({ peerId: c.peerId, username: c.username, encryptionKey: c.encryptionKey })),
-      messages: messages,
-      loginRegistry: loginRegistry
+      chats: chats.map(c => ({ peerId: c.peerId, username: c.username, encryptionKey: c.encryptionKey })),
+      messages: messages
     };
-    localStorage.setItem('p2pmesh_user', JSON.stringify(data));
+    localStorage.setItem('p2ptg_user', JSON.stringify(data));
   }
-  function loadUserData() {
-    const raw = localStorage.getItem('p2pmesh_user');
+  function loadData() {
+    const raw = localStorage.getItem('p2ptg_user');
     if (!raw) return null;
     try { return JSON.parse(raw); } catch(e) { return null; }
   }
 
-  // ---------------------------- P2P СОЕДИНЕНИЕ ----------------------------
-  function createPeer(initiator, targetContact, offerSignal = null) {
-    const peer = new SimplePeer({
-      initiator: initiator,
-      trickle: false,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+  // ---------------------------- P2P ИНИЦИАЛИЗАЦИЯ ----------------------------
+  function initPeer() {
+    return new Promise((resolve, reject) => {
+      const peerId = currentUser.peerId;
+      peer = new Peer(peerId, {
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
+        debug: 2
+      });
+      peer.on('open', () => {
+        console.log('PeerJS open:', peerId);
+        resolve();
+      });
+      peer.on('error', reject);
+      peer.on('connection', (conn) => {
+        // Входящее соединение от контакта
+        let chat = chats.find(c => c.peerId === conn.peer);
+        if (!chat) {
+          // Новый контакт – ждём handshake
+          conn.on('data', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'handshake') {
+              chat = {
+                peerId: conn.peer,
+                username: msg.username,
+                encryptionKey: msg.encryptionKey,
+                peer: conn,
+                online: true,
+                lastSeen: Date.now(),
+                unread: 0
+              };
+              chats.push(chat);
+              saveData();
+              setupConnection(conn, chat);
+              conn.send(JSON.stringify({ type: 'handshake_ack', encryptionKey: currentUser.encryptionKey }));
+              renderChatList();
+              // Отправить все ожидающие сообщения
+              flushPendingMessages(chat);
+            }
+          });
+        } else {
+          chat.peer = conn;
+          chat.online = true;
+          chat.lastSeen = Date.now();
+          setupConnection(conn, chat);
+          conn.send(JSON.stringify({ type: 'handshake', username: currentUser.username, encryptionKey: currentUser.encryptionKey }));
+          flushPendingMessages(chat);
+          renderChatList();
+        }
+      });
     });
-    peer.on('signal', data => {
-      if (initiator) {
-        const offerJson = JSON.stringify(data);
-        showQR(offerJson, "Ваш QR-оффер для контакта");
-      } else {
-        const answerJson = JSON.stringify(data);
-        showQR(answerJson, "Ответ для контакта");
-      }
-    });
-    peer.on('connect', () => {
-      targetContact.peerInstance = peer;
-      targetContact.online = true;
-      // Отправляем handshake
-      peer.send(JSON.stringify({
-        type: 'handshake',
-        username: currentUser.username,
-        encryptionKey: currentUser.encryptionKey
-      }));
-      renderContactList();
-      // Синхронизируем локальную таблицу логинов с новым контактом
-      syncRegistryToPeer(peer);
-    });
-    peer.on('data', data => handlePeerData(peer, targetContact, data));
-    peer.on('close', () => {
-      targetContact.online = false;
-      renderContactList();
-    });
-    peer.on('error', err => console.error(err));
-    if (!initiator && offerSignal) peer.signal(offerSignal);
-    return peer;
   }
 
-  function handlePeerData(peer, contact, rawData) {
-    try {
-      const packet = JSON.parse(rawData);
-      if (packet.type === 'handshake') {
-        contact.encryptionKey = packet.encryptionKey;
-        contact.username = packet.username;
-        // Добавляем в реестр
-        if (!loginRegistry[packet.username] || loginRegistry[packet.username] === contact.peerId) {
-          loginRegistry[packet.username] = contact.peerId;
-        }
-        saveUserData();
-        renderContactList();
-        peer.send(JSON.stringify({ type: 'handshake_ack', encryptionKey: currentUser.encryptionKey }));
-        // Отправляем текущий реестр
-        syncRegistryToPeer(peer);
+  function setupConnection(conn, chat) {
+    conn.on('data', (data) => {
+      const packet = JSON.parse(data);
+      if (packet.type === 'chat') {
+        const decrypted = decryptMessage(packet.cipher, chat.encryptionKey);
+        if (!messages[chat.peerId]) messages[chat.peerId] = [];
+        messages[chat.peerId].push({ text: decrypted, own: false, time: new Date().toLocaleTimeString(), delivered: true });
+        chat.unread = (chat.unread || 0) + 1;
+        saveData();
+        if (currentChatPeerId === chat.peerId) renderMessages();
+        renderChatList();
+        showNotification(chat.username, decrypted);
+        // Отправить подтверждение доставки
+        conn.send(JSON.stringify({ type: 'delivery_ack', msgId: packet.msgId }));
       } else if (packet.type === 'handshake_ack') {
-        contact.encryptionKey = packet.encryptionKey;
-        saveUserData();
-      } else if (packet.type === 'chat') {
-        const decrypted = decryptMessage(packet.cipher, contact.encryptionKey);
-        if (!messages[contact.peerId]) messages[contact.peerId] = [];
-        messages[contact.peerId].push({ text: decrypted, own: false, time: new Date().toLocaleTimeString() });
-        saveUserData();
-        if (activeContactId === contact.peerId) renderMessages();
-        showNotification(contact.username, decrypted);
-      } else if (packet.type === 'call_offer') {
-        handleIncomingCall(peer, packet);
-      } else if (packet.type === 'registry_sync') {
-        // Получаем часть реестра от другого узла
-        for (let [uname, pId] of Object.entries(packet.registry)) {
-          if (!loginRegistry[uname] || loginRegistry[uname] === pId) {
-            loginRegistry[uname] = pId;
-          }
-        }
-        saveUserData();
+        chat.encryptionKey = packet.encryptionKey;
+        saveData();
       } else if (packet.type === 'search_request') {
-        // Запрос на поиск логина
-        const { nick, requestId } = packet;
-        let foundPeerId = loginRegistry[nick];
-        if (foundPeerId) {
-          peer.send(JSON.stringify({
-            type: 'search_response',
-            requestId: requestId,
-            peerId: foundPeerId,
-            username: nick
-          }));
-        }
+        handleSearchRequest(conn, packet);
       } else if (packet.type === 'search_response') {
-        if (pendingSearchCallbacks[packet.requestId]) {
-          pendingSearchCallbacks[packet.requestId](packet);
-          delete pendingSearchCallbacks[packet.requestId];
-        }
-      } else if (packet.type === 'register_check') {
-        // Проверка уникальности логина при регистрации
-        const { username, requestId } = packet;
-        let taken = !!loginRegistry[username];
-        peer.send(JSON.stringify({
-          type: 'register_response',
-          requestId: requestId,
-          available: !taken
-        }));
-      } else if (packet.type === 'register_response') {
-        if (pendingSearchCallbacks[packet.requestId]) {
-          pendingSearchCallbacks[packet.requestId](packet);
-          delete pendingSearchCallbacks[packet.requestId];
-        }
+        handleSearchResponse(packet);
+      } else if (packet.type === 'call_offer') {
+        handleIncomingCall(conn, packet);
+      } else if (packet.type === 'call_answer') {
+        // обработка ответа на звонок (упрощённо)
+      } else if (packet.type === 'call_candidate') {
+        if (currentCall) currentCall.pc.addIceCandidate(new RTCIceCandidate(packet.candidate));
       }
-    } catch(e) { console.error(e); }
-  }
-
-  function syncRegistryToPeer(peer) {
-    // Отправляем не весь реестр, а только часть, чтобы не перегружать
-    let subset = {};
-    let count = 0;
-    for (let [uname, pId] of Object.entries(loginRegistry)) {
-      if (count++ > 50) break;
-      subset[uname] = pId;
-    }
-    peer.send(JSON.stringify({ type: 'registry_sync', registry: subset }));
-  }
-
-  // ---------------------------- УПРАВЛЕНИЕ КОНТАКТАМИ ----------------------------
-  function connectToPeer(contact) {
-    if (contact.peerInstance) return;
-    const peer = createPeer(true, contact);
-    contact.peerInstance = peer;
-  }
-
-  function generateOfferForNewContact() {
-    const tempPeer = new SimplePeer({ initiator: true, trickle: false });
-    tempPeer.on('signal', data => {
-      const offerJson = JSON.stringify(data);
-      showQR(offerJson, "QR-оффер для нового контакта");
-      setTimeout(() => {
-        const answer = prompt("После сканирования вставьте ответ от другого устройства:");
-        if (answer) {
-          try {
-            const answerSignal = JSON.parse(answer);
-            tempPeer.signal(answerSignal);
-            const newPeerId = 'peer_' + Date.now() + '_' + Math.random();
-            const newContact = {
-              peerId: newPeerId,
-              username: 'Новый контакт',
-              encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-              peerInstance: tempPeer,
-              online: true
-            };
-            contacts.push(newContact);
-            saveUserData();
-            renderContactList();
-            tempPeer.on('data', d => handlePeerData(tempPeer, newContact, d));
-          } catch(e) { alert('Неверный ответ'); }
-        }
-      }, 100);
+    });
+    conn.on('close', () => {
+      chat.online = false;
+      chat.lastSeen = Date.now();
+      renderChatList();
+      if (currentChatPeerId === chat.peerId) {
+        document.getElementById('chatContactName').innerHTML = `${chat.username} <span style="font-size:12px; color:#8e8e93;">был(а) ${new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
+      }
     });
   }
 
-  function addContactManually() {
-    const peerId = prompt("Введите PeerId контакта:");
-    if (!peerId) return;
-    if (contacts.find(c => c.peerId === peerId)) {
-      alert('Контакт уже есть');
-      return;
-    }
-    const newContact = {
-      peerId: peerId,
-      username: peerId.slice(0, 12),
-      encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-      peerInstance: null,
-      online: false
-    };
-    contacts.push(newContact);
-    connectToPeer(newContact);
-    saveUserData();
-    renderContactList();
-  }
-
-  // Поиск по нику через сеть (gossip)
-  function searchContactByNick(nick) {
-    // Сначала проверим локальный реестр
-    if (loginRegistry[nick]) {
-      let peerId = loginRegistry[nick];
-      if (contacts.find(c => c.peerId === peerId)) {
-        openChat(contacts.find(c => c.peerId === peerId));
-        return;
-      } else {
-        // Добавляем контакт
-        let newContact = {
-          peerId: peerId,
-          username: nick,
-          encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-          peerInstance: null,
-          online: false
-        };
-        contacts.push(newContact);
-        connectToPeer(newContact);
-        saveUserData();
-        renderContactList();
-        alert(`Контакт ${nick} добавлен`);
-        return;
-      }
-    }
-    // Иначе отправляем запрос всем онлайн-контактам
-    let requestId = Date.now() + '_' + Math.random();
-    pendingSearchCallbacks[requestId] = (response) => {
-      if (response.peerId) {
-        let newContact = {
-          peerId: response.peerId,
-          username: response.username,
-          encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-          peerInstance: null,
-          online: false
-        };
-        contacts.push(newContact);
-        connectToPeer(newContact);
-        saveUserData();
-        renderContactList();
-        alert(`Контакт ${response.username} добавлен`);
-      } else {
-        alert('Пользователь не найден');
-      }
-    };
-    for (let contact of contacts) {
-      if (contact.online && contact.peerInstance) {
-        contact.peerInstance.send(JSON.stringify({
+  // ---------------------------- ПОИСК И ДОБАВЛЕНИЕ КОНТАКТОВ ----------------------------
+  function searchContact(nick) {
+    // Отправить поисковый запрос всем существующим контактам
+    for (let chat of chats) {
+      if (chat.peer && chat.peer.open) {
+        chat.peer.send(JSON.stringify({
           type: 'search_request',
           nick: nick,
-          requestId: requestId
+          from: currentUser.peerId
         }));
       }
     }
-    // Таймаут
+    // Также отправить широковещательный запрос через PeerJS (невозможно), поэтому полагаемся на сеть.
+    // Через 3 секунды покажем уведомление, если не найден.
     setTimeout(() => {
-      if (pendingSearchCallbacks[requestId]) {
-        delete pendingSearchCallbacks[requestId];
-        alert('Поиск не дал результатов');
+      if (!window.searchResultReceived) {
+        alert('Пользователь не найден в сети');
       }
-    }, 10000);
+      window.searchResultReceived = false;
+    }, 3000);
   }
 
-  // Проверка уникальности логина при регистрации
-  function checkLoginUnique(username, callback) {
-    // Сначала локально
-    if (loginRegistry[username] && loginRegistry[username] !== currentUser?.peerId) {
-      callback(false);
-      return;
+  function handleSearchRequest(conn, packet) {
+    if (currentUser.username.toLowerCase() === packet.nick.toLowerCase()) {
+      // Это я – отвечаю
+      conn.send(JSON.stringify({
+        type: 'search_response',
+        peerId: currentUser.peerId,
+        username: currentUser.username,
+        requester: packet.from
+      }));
     }
-    let requestId = Date.now() + '_' + Math.random();
-    pendingSearchCallbacks[requestId] = (response) => {
-      callback(response.available);
-    };
-    let sent = false;
-    for (let contact of contacts) {
-      if (contact.online && contact.peerInstance) {
-        contact.peerInstance.send(JSON.stringify({
-          type: 'register_check',
-          username: username,
-          requestId: requestId
-        }));
-        sent = true;
-      }
-    }
-    if (!sent) {
-      // Нет онлайн-контактов, считаем уникальным
-      callback(true);
+  }
+
+  function handleSearchResponse(packet) {
+    window.searchResultReceived = true;
+    if (packet.peerId === currentUser.peerId) return;
+    let existing = chats.find(c => c.peerId === packet.peerId);
+    if (!existing) {
+      const newChat = {
+        peerId: packet.peerId,
+        username: packet.username,
+        encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
+        peer: null,
+        online: false,
+        lastSeen: 0,
+        unread: 0
+      };
+      chats.push(newChat);
+      saveData();
+      renderChatList();
+      // Подключаемся к новому контакту
+      connectToPeer(newChat);
+      alert(`Контакт ${packet.username} добавлен`);
     } else {
-      setTimeout(() => {
-        if (pendingSearchCallbacks[requestId]) {
-          delete pendingSearchCallbacks[requestId];
-          callback(true); // таймаут – считаем свободным
-        }
-      }, 5000);
+      alert(`${packet.username} уже в ваших контактах`);
     }
+  }
+
+  function connectToPeer(chat) {
+    if (chat.peer) return;
+    const conn = peer.connect(chat.peerId);
+    conn.on('open', () => {
+      chat.peer = conn;
+      chat.online = true;
+      chat.lastSeen = Date.now();
+      setupConnection(conn, chat);
+      conn.send(JSON.stringify({ type: 'handshake', username: currentUser.username, encryptionKey: currentUser.encryptionKey }));
+      renderChatList();
+      flushPendingMessages(chat);
+    });
+    conn.on('close', () => {
+      chat.online = false;
+      chat.lastSeen = Date.now();
+      renderChatList();
+    });
+  }
+
+  function flushPendingMessages(chat) {
+    if (!chat.peer || !chat.peer.open) return;
+    const pending = pendingMessages.filter(m => m.peerId === chat.peerId);
+    for (let p of pending) {
+      sendChatMessageDirect(chat, p.text);
+    }
+    pendingMessages = pendingMessages.filter(m => m.peerId !== chat.peerId);
   }
 
   // ---------------------------- ОТПРАВКА СООБЩЕНИЙ ----------------------------
-  function sendChatMessage(contact, text) {
-    if (!contact.peerInstance || !contact.peerInstance.connected) {
-      alert('Контакт не в сети');
+  function sendChatMessage(chat, text) {
+    if (!chat.peer || !chat.peer.open) {
+      // Сохраняем в очередь офлайн
+      pendingMessages.push({ peerId: chat.peerId, text });
+      if (!messages[chat.peerId]) messages[chat.peerId] = [];
+      messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: false });
+      saveData();
+      renderMessages();
+      renderChatList();
+      alert('Сообщение будет доставлено, когда контакт появится в сети');
       return;
     }
-    const cipher = encryptMessage(text, contact.encryptionKey);
-    contact.peerInstance.send(JSON.stringify({ type: 'chat', cipher: cipher }));
-    if (!messages[contact.peerId]) messages[contact.peerId] = [];
-    messages[contact.peerId].push({ text, own: true, time: new Date().toLocaleTimeString() });
-    saveUserData();
-    renderMessages();
+    sendChatMessageDirect(chat, text);
   }
 
-  // ---------------------------- ЗВОНКИ ----------------------------
+  function sendChatMessageDirect(chat, text) {
+    const cipher = encryptMessage(text, chat.encryptionKey);
+    chat.peer.send(JSON.stringify({ type: 'chat', cipher: cipher, msgId: Date.now() }));
+    if (!messages[chat.peerId]) messages[chat.peerId] = [];
+    messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: true });
+    saveData();
+    renderMessages();
+    renderChatList();
+  }
+
+  // ---------------------------- ЗВОНКИ (упрощённо) ----------------------------
   async function startCall(video) {
-    if (!activeContactId) return;
-    const contact = contacts.find(c => c.peerId === activeContactId);
-    if (!contact || !contact.peerInstance) return;
+    if (!currentChatPeerId) return;
+    const chat = chats.find(c => c.peerId === currentChatPeerId);
+    if (!chat || !chat.peer) return;
     const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
     localStream = stream;
     document.getElementById('localVideo').srcObject = stream;
@@ -468,7 +381,7 @@
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.onicecandidate = event => {
       if (event.candidate) {
-        contact.peerInstance.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
+        chat.peer.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
       }
     };
     pc.ontrack = event => {
@@ -476,14 +389,14 @@
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    contact.peerInstance.send(JSON.stringify({ type: 'call_offer', sdp: pc.localDescription }));
-    currentCall = { pc, contact };
+    chat.peer.send(JSON.stringify({ type: 'call_offer', sdp: pc.localDescription }));
+    currentCall = { pc, chat };
     document.getElementById('videoCallOverlay').classList.add('active');
   }
 
-  function handleIncomingCall(peer, packet) {
+  function handleIncomingCall(conn, packet) {
     if (currentCall) {
-      peer.send(JSON.stringify({ type: 'call_busy' }));
+      conn.send(JSON.stringify({ type: 'call_busy' }));
       return;
     }
     const accept = confirm('Входящий звонок. Принять?');
@@ -495,7 +408,7 @@
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
       pc.onicecandidate = event => {
         if (event.candidate) {
-          peer.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
+          conn.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
         }
       };
       pc.ontrack = event => {
@@ -504,9 +417,9 @@
       pc.setRemoteDescription(new RTCSessionDescription(packet.sdp));
       pc.createAnswer().then(answer => {
         pc.setLocalDescription(answer);
-        peer.send(JSON.stringify({ type: 'call_answer', sdp: pc.localDescription }));
+        conn.send(JSON.stringify({ type: 'call_answer', sdp: pc.localDescription }));
       });
-      currentCall = { pc, contact: contacts.find(c => c.peerInstance === peer) };
+      currentCall = { pc, chat: chats.find(c => c.peer === conn) };
       document.getElementById('videoCallOverlay').classList.add('active');
     });
   }
@@ -521,47 +434,56 @@
     document.getElementById('videoCallOverlay').classList.remove('active');
   }
 
-  // ---------------------------- UI ----------------------------
-  function renderContactList() {
-    const container = document.getElementById('contactsList');
+  // ---------------------------- UI РЕНДЕРИНГ ----------------------------
+  function renderChatList() {
+    const container = document.getElementById('chatList');
     container.innerHTML = '';
-    for (let contact of contacts) {
+    for (let chat of chats) {
+      const lastMsg = messages[chat.peerId] ? messages[chat.peerId][messages[chat.peerId].length-1] : null;
+      const statusText = chat.online ? '🟢 в сети' : `был(а) ${new Date(chat.lastSeen).toLocaleTimeString()}`;
       const div = document.createElement('div');
-      div.className = 'contact-item';
+      div.className = 'chat-item';
       div.innerHTML = `
-        <div>
-          <span class="contact-name-list">${escapeHtml(contact.username)}</span>
-          ${contact.online ? '<span class="online-badge"></span>' : '<span style="font-size:10px; color:gray;"> offline</span>'}
+        <div class="chat-info" style="flex:1">
+          <div class="chat-name">${escapeHtml(chat.username)} ${chat.unread ? `<span style="background:#007aff; border-radius:12px; padding:2px 8px; font-size:12px;">${chat.unread}</span>` : ''}</div>
+          <div class="last-message">${lastMsg ? lastMsg.text.substring(0,30) : 'Нет сообщений'}</div>
+          <div class="chat-status ${chat.online ? 'online-status' : ''}">${statusText}</div>
         </div>
+        <div class="delete-chat" data-peer="${chat.peerId}">🗑️</div>
       `;
-      div.onclick = () => openChat(contact);
+      div.querySelector('.chat-info').onclick = () => openChat(chat);
+      const delBtn = div.querySelector('.delete-chat');
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm('Удалить чат? Все сообщения будут стёрты.')) {
+          deleteChat(chat.peerId);
+        }
+      };
       container.appendChild(div);
     }
-    if (contacts.length === 0) container.innerHTML = '<div style="text-align:center; padding:20px;">Нет контактов. Используйте поиск или QR-оффер.</div>';
-    
-    const chatsContainer = document.getElementById('chatsList');
-    chatsContainer.innerHTML = '';
-    for (let contact of contacts) {
-      const lastMsg = messages[contact.peerId] ? messages[contact.peerId][messages[contact.peerId].length-1] : null;
-      const div = document.createElement('div');
-      div.className = 'contact-item';
-      div.innerHTML = `
-        <div>
-          <span class="contact-name-list">${escapeHtml(contact.username)}</span>
-          ${contact.online ? '<span class="online-badge"></span>' : ''}
-          <div style="font-size:12px; color:#8e8e93;">${lastMsg ? lastMsg.text.substring(0,30) : 'Нет сообщений'}</div>
-        </div>
-      `;
-      div.onclick = () => openChat(contact);
-      chatsContainer.appendChild(div);
-    }
-    if (contacts.length === 0) chatsContainer.innerHTML = '<div style="text-align:center; padding:20px;">Нет чатов. Добавьте контакт.</div>';
+    if (chats.length === 0) container.innerHTML = '<div style="text-align:center; padding:20px;">Нет чатов. Найдите собеседника по нику.</div>';
   }
 
-  function openChat(contact) {
-    activeContactId = contact.peerId;
-    document.getElementById('chatContactName').innerText = contact.username;
+  function deleteChat(peerId) {
+    chats = chats.filter(c => c.peerId !== peerId);
+    delete messages[peerId];
+    saveData();
+    if (currentChatPeerId === peerId) {
+      document.getElementById('chatScreen').classList.remove('active');
+      document.getElementById('mainScreen').classList.add('active');
+      currentChatPeerId = null;
+    }
+    renderChatList();
+  }
+
+  function openChat(chat) {
+    currentChatPeerId = chat.peerId;
+    document.getElementById('chatContactName').innerHTML = `${chat.username} <span style="font-size:12px; color:#8e8e93;">${chat.online ? 'в сети' : 'был(а) ' + new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
     renderMessages();
+    // Сбросить счётчик непрочитанных
+    chat.unread = 0;
+    saveData();
+    renderChatList();
     document.getElementById('mainScreen').classList.remove('active');
     document.getElementById('chatScreen').classList.add('active');
   }
@@ -569,7 +491,7 @@
   function renderMessages() {
     const container = document.getElementById('messagesContainer');
     container.innerHTML = '';
-    const msgs = messages[activeContactId] || [];
+    const msgs = messages[currentChatPeerId] || [];
     msgs.forEach(msg => {
       const div = document.createElement('div');
       div.className = `message ${msg.own ? 'own' : ''}`;
@@ -577,14 +499,6 @@
       container.appendChild(div);
     });
     container.scrollTop = container.scrollHeight;
-  }
-
-  function showQR(text, title) {
-    const qrDiv = document.getElementById('qrPopup');
-    qrDiv.innerHTML = `<div style="margin-bottom:8px; font-weight:bold;">${title}</div>`;
-    new QRCode(qrDiv, { text: text, width: 200, height: 200 });
-    qrDiv.classList.remove('hidden');
-    setTimeout(() => qrDiv.classList.add('hidden'), 30000);
   }
 
   function showNotification(title, body) {
@@ -595,70 +509,53 @@
 
   function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
 
-  // ---------------------------- РАСПРОСТРАНЕНИЕ ПРИЛОЖЕНИЯ (AirDrop) ----------------------------
-  function shareAppViaAirDrop() {
-    const htmlContent = document.documentElement.outerHTML;
-    const blob = new Blob([htmlContent], {type: 'text/html'});
-    const file = new File([blob], 'P2PChat.html', {type: 'text/html'});
-    if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
-      navigator.share({
-        title: 'P2P Mesh Chat',
-        text: 'Установите приложение',
-        files: [file]
-      }).catch(err => alert('Ошибка: ' + err));
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'P2PChat.html';
-      a.click();
-      URL.revokeObjectURL(url);
-      alert('Файл сохранён. Передайте его через AirDrop вручную.');
-    }
+  // ---------------------------- УСТАНОВКА PWA И QR ----------------------------
+  function showInstallQR() {
+    const installUrl = window.location.href;
+    const qrDiv = document.getElementById('qrPopup');
+    qrDiv.innerHTML = '';
+    new QRCode(qrDiv, { text: installUrl, width: 200, height: 200 });
+    qrDiv.classList.remove('hidden');
+    setTimeout(() => qrDiv.classList.add('hidden'), 30000);
+  }
+
+  function shareAppViaQR() {
+    showInstallQR();
   }
 
   // ---------------------------- РЕГИСТРАЦИЯ / ЛОГИН ----------------------------
   function registerOrLogin(username, password) {
-    const stored = localStorage.getItem('p2pmesh_auth');
+    const stored = localStorage.getItem('p2ptg_auth');
     const hash = CryptoJS.SHA256(password).toString();
     if (stored) {
       const data = JSON.parse(stored);
       if (data.username === username && data.passwordHash === hash) {
         currentUser = { username: data.username, peerId: data.peerId, encryptionKey: data.encryptionKey };
-        const saved = loadUserData();
+        const saved = loadData();
         if (saved) {
-          contacts = saved.contacts.map(c => ({ ...c, peerInstance: null, online: false }));
+          chats = saved.chats.map(c => ({ ...c, peer: null, online: false, lastSeen: 0, unread: 0 }));
           messages = saved.messages;
-          loginRegistry = saved.loginRegistry || {};
         }
-        // Восстанавливаем соединения со всеми контактами
-        for (let contact of contacts) {
-          if (!contact.peerInstance) {
-            connectToPeer(contact);
+        initPeer().then(() => {
+          // Восстанавливаем соединения с контактами
+          for (let chat of chats) {
+            connectToPeer(chat);
           }
-        }
-        renderContactList();
-        showMainScreen();
+          renderChatList();
+          showMainScreen();
+        }).catch(err => alert('Ошибка подключения: ' + err));
         return;
       } else { alert('Неверный пароль'); return; }
     } else {
-      // Регистрация нового пользователя – проверка уникальности
-      checkLoginUnique(username, (isUnique) => {
-        if (!isUnique) {
-          alert('Этот логин уже занят в сети. Выберите другой.');
-          return;
-        }
-        const salt = CryptoJS.lib.WordArray.random(16).toString();
-        const encryptionKey = deriveKeyFromPassword(password, salt);
-        const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36);
-        currentUser = { username, peerId, encryptionKey, salt };
-        localStorage.setItem('p2pmesh_auth', JSON.stringify({ username, passwordHash: hash, salt, peerId, encryptionKey }));
-        // Добавляем себя в реестр
-        loginRegistry[username] = peerId;
-        saveUserData();
-        // Устанавливаем соединения с существующими контактами (пока пусто)
+      const salt = CryptoJS.lib.WordArray.random(16).toString();
+      const encryptionKey = deriveKeyFromPassword(password, salt);
+      const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36);
+      currentUser = { username, peerId, encryptionKey, salt };
+      localStorage.setItem('p2ptg_auth', JSON.stringify({ username, passwordHash: hash, salt, peerId, encryptionKey }));
+      saveData();
+      initPeer().then(() => {
         showMainScreen();
-      });
+      }).catch(err => alert('Ошибка: ' + err));
     }
   }
 
@@ -666,24 +563,7 @@
     document.getElementById('authScreen').classList.remove('active');
     document.getElementById('mainScreen').classList.add('active');
     document.getElementById('networkInfo').innerText = `Ваш ID: ${currentUser.peerId.slice(0,12)}...`;
-    renderContactList();
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.onclick = () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const tabName = tab.dataset.tab;
-        document.getElementById('chatsList').classList.add('hidden');
-        document.getElementById('contactsList').classList.add('hidden');
-        if (tabName === 'chats') {
-          document.getElementById('chatsList').classList.remove('hidden');
-          document.getElementById('addContactPanel').classList.add('hidden');
-        } else {
-          document.getElementById('contactsList').classList.remove('hidden');
-          document.getElementById('addContactPanel').classList.remove('hidden');
-        }
-      };
-    });
-    document.querySelector('.tab[data-tab="chats"]').click();
+    renderChatList();
   }
 
   // ---------------------------- ОБРАБОТЧИКИ UI ----------------------------
@@ -693,69 +573,42 @@
     if (user && pass) registerOrLogin(user, pass);
     else alert('Введите логин и пароль');
   };
-  document.getElementById('generateOfferBtn').onclick = () => generateOfferForNewContact();
-  document.getElementById('addManualBtn').onclick = () => addContactManually();
-  document.getElementById('searchContactBtn').onclick = () => {
-    const nick = document.getElementById('searchNickInput').value.trim();
-    if (nick) searchContactByNick(nick);
+  document.getElementById('searchBtn').onclick = () => {
+    const nick = document.getElementById('searchNick').value.trim();
+    if (nick) searchContact(nick);
   };
   document.getElementById('sendMsgBtn').onclick = () => {
     const text = document.getElementById('messageInput').value;
-    if (!text || !activeContactId) return;
-    const contact = contacts.find(c => c.peerId === activeContactId);
-    if (contact) sendChatMessage(contact, text);
+    if (!text || !currentChatPeerId) return;
+    const chat = chats.find(c => c.peerId === currentChatPeerId);
+    if (chat) sendChatMessage(chat, text);
     document.getElementById('messageInput').value = '';
   };
   document.getElementById('chatBackBtn').onclick = () => {
     document.getElementById('chatScreen').classList.remove('active');
     document.getElementById('mainScreen').classList.add('active');
-    activeContactId = null;
+    currentChatPeerId = null;
   };
   document.getElementById('audioCallBtn').onclick = () => startCall(false);
   document.getElementById('videoCallBtn').onclick = () => startCall(true);
   document.getElementById('hangupBtn').onclick = () => endCall();
-  document.getElementById('shareAppBtn').onclick = () => shareAppViaAirDrop();
-  document.getElementById('shareFileBtn').onclick = () => shareAppViaAirDrop();
+  document.getElementById('showInstallQRBtn').onclick = () => showInstallQR();
+  document.getElementById('shareAppQRBtn').onclick = () => shareAppViaQR();
 
-  // PWA: создаём манифест и service worker
-  (function setupPWA() {
-    const manifest = {
-      name: "P2P Mesh",
-      short_name: "P2PChat",
-      start_url: ".",
-      display: "standalone",
-      theme_color: "#1f1f1f",
-      background_color: "#0a0a0a",
-      icons: [{
-        src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAPeSURBVHgB7ZzNcdowFIZfCaGDhA7oIKGDhA5C6CB0A+kAdYN0A+kA6QbpBtINhA6gA5MO0kH4mUeW5Z8kS7ZlO2cknzPjGQhYr9KjLy9aCQAAAAAAAAAAAAAAAAAAAAD8RzRNc5um+T/TNP9YlmW+LMtNlmX3RVHcF0VxV5blT+P6iPLPNE2fkyT5KGV0URTFYvTw9/d3SVEUvyzL+iHLsu+i7HdVVe3lWvY4d/BnGIbhMs/zs6qqbhjHbdM0n/W/Dw8Pz1EU1WmavhqnqWHY+55RVVV/VVV1T1GUc/ngpZ/3jDzPz9M0/SzKfyrL8nSjfz8/P/cxDtHr+I+//vPz8/MUEfKa8v39/VZEyEd9Pk3TY8dxPq3rXpPko1y30+uGXk+c5/u0TdP0cK1c9zzPnef5LUk+r8eGYSjv9/svr32SJN9H4nmef4r6JkmSy98uyzIPw/BM1C0S5hXlj8dxfBVF0Zv+rYwliqL3six/ivkfhT/V+2maHmOMn8U8jDGGWFtrHMc/UjpdlnVd1z+MMfY8r06S5Bti/LUsyz9pmv7Q9zBN00+MsXfLso7Gv6f2o/5lWfZBCLkQ/zyUZflByofH1DHGvpZl+cEYf0vT9Lv+zfO8z7LsyHEcUc/zPDHG3pRl+UuUIeX/lE7T9FNZlr3wj1FvJv4t5fu+3xdFEYiySZJkEIXUOFr/rJRRlL/b7XbXvu/3iHWWZe+SJPki9tV1/csY+zHOtSRLpmnaG2MOwzD8HdFkWfZtNpsttNZpmh7rus7Fv/P5/BjHMRbjSLp5TgiO4zwURfFV+r/tdnsymUxCKYvj+EiU/aD/9zxvI8W6LMte+75P3T+H1pokiR8EwaUoh+M4M/nfdru9mM1mG+W/+mFZFj2XZZm8ePeo+4eHh+/aXkV0RFG0mM/nWzwpdbzseZ7N53NpmX2lS0l93/dZlmUJ3p/c+v1+T3Ec54+2eZRlOR+Px9sRIZ7nLcbjMVWxHY1GZvJlysvLyy3G+L3nefcYY2mPMnme0+vrK10CL6/fm2VZdzabbe5S+L22Wq2OMcaGEAIVe3gUY2w1n88vMpjj8Tg2n88pnDHeHw6HS+1mSJkHRhj9+PAaDAakMMaL+Xx+kYzVasVwA8Dj4+N9nudBEAQ3GONb2vD09PTM5+5Y+nT9d7vdiW3bi5JqO8Tv7+9H0zR/Msb6KIr2SgjlExFBKdNxHMJxHHIch5RlSVEUBeV/QhRFURRFURRFURRFUfzP/AUS8NwJ7bD9TgAAAABJRU5ErkJggg==",
-        sizes: "192x192",
-        type: "image/png"
-      }]
-    };
-    const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-    const manifestURL = URL.createObjectURL(manifestBlob);
-    const link = document.querySelector('link[rel="manifest"]');
-    if (link) link.href = manifestURL;
-    else {
-      const newLink = document.createElement('link');
-      newLink.rel = 'manifest';
-      newLink.href = manifestURL;
-      document.head.appendChild(newLink);
-    }
-    if ('serviceWorker' in navigator) {
-      const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));`;
-      const swBlob = new Blob([swCode], {type: 'application/javascript'});
-      const swUrl = URL.createObjectURL(swBlob);
-      navigator.serviceWorker.register(swUrl).then(reg => {
-        console.log('SW registered');
-        if (Notification.permission !== 'granted') Notification.requestPermission();
-      });
-    }
-  })();
+  // Service Worker
+  if ('serviceWorker' in navigator) {
+    const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));`;
+    const blob = new Blob([swCode], {type: 'application/javascript'});
+    const swUrl = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(swUrl).then(reg => {
+      console.log('SW registered');
+      if (Notification.permission !== 'granted') Notification.requestPermission();
+    });
+  }
 
   // Автозаполнение логина
   (function() {
-    const auth = localStorage.getItem('p2pmesh_auth');
+    const auth = localStorage.getItem('p2ptg_auth');
     if (auth) {
       try {
         const data = JSON.parse(auth);
