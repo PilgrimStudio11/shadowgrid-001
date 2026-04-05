@@ -1,989 +1,634 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>P2P Messenger</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    }
-    body {
-      background: #0a0a0a;
-      color: #e0e0e0;
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    #app {
-      width: 100%;
-      max-width: 500px;
-      height: 100%;
-      background: #1f1f1f;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      border-radius: 24px;
-      overflow: hidden;
-    }
-    .screen {
-      display: none;
-      flex-direction: column;
-      height: 100%;
-    }
-    .screen.active {
-      display: flex;
-    }
-    .chat-header {
-      padding: 16px;
-      background: #2c2c2e;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      border-bottom: 0.5px solid #3a3a3c;
-    }
-    .back-btn, .call-btn {
-      background: none;
-      border: none;
-      color: #007aff;
-      font-size: 24px;
-      cursor: pointer;
-    }
-    .contact-name {
-      font-size: 18px;
-      font-weight: 600;
-      flex: 1;
-    }
-    .messages-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .message {
-      max-width: 80%;
-      padding: 8px 12px;
-      border-radius: 18px;
-      background: #2c2c2e;
-      align-self: flex-start;
-    }
-    .message.own {
-      background: #007aff;
-      align-self: flex-end;
-    }
-    .message-text {
-      font-size: 15px;
-    }
-    .message-time {
-      font-size: 10px;
-      color: #8e8e93;
-      margin-top: 4px;
-      text-align: right;
-    }
-    .input-area {
-      padding: 12px;
-      background: #2c2c2e;
-      display: flex;
-      gap: 8px;
-      border-top: 0.5px solid #3a3a3c;
-    }
-    .input-area input {
-      flex: 1;
-      padding: 10px;
-      border-radius: 24px;
-      border: none;
-      background: #3a3a3c;
-      color: white;
-      font-size: 16px;
-    }
-    .input-area button {
-      background: #007aff;
-      border: none;
-      border-radius: 24px;
-      padding: 0 16px;
-      color: white;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .auth-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 24px;
-      gap: 20px;
-    }
-    .auth-container input {
-      padding: 14px;
-      border-radius: 12px;
-      border: none;
-      background: #2c2c2e;
-      color: white;
-      font-size: 16px;
-    }
-    .auth-container button {
-      background: #007aff;
-      border: none;
-      border-radius: 12px;
-      padding: 14px;
-      color: white;
-      font-weight: bold;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    .auth-link {
-      text-align: center;
-      color: #007aff;
-      cursor: pointer;
-      margin-top: 8px;
-    }
-    .chat-list {
-      flex: 1;
-      overflow-y: auto;
-    }
-    .chat-item {
-      background: #2c2c2e;
-      padding: 12px 16px;
-      margin: 4px 8px;
-      border-radius: 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .chat-item:active {
-      background: #3a3a3c;
-    }
-    .chat-info {
-      flex: 1;
-    }
-    .chat-name {
-      font-weight: 500;
-      margin-bottom: 4px;
-    }
-    .last-message {
-      font-size: 12px;
-      color: #8e8e93;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 200px;
-    }
-    .chat-status {
-      font-size: 11px;
-      color: #8e8e93;
-    }
-    .online-status {
-      color: #34c759;
-    }
-    .delete-chat {
-      background: #ff3b30;
-      padding: 8px 16px;
-      border-radius: 12px;
-      color: white;
-      font-size: 14px;
-      margin-left: 8px;
-      cursor: pointer;
-    }
-    .add-contact-panel {
-      margin: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .search-row {
-      display: flex;
-      gap: 8px;
-    }
-    .search-row input {
-      flex: 1;
-      padding: 12px;
-      border-radius: 24px;
-      border: none;
-      background: #2c2c2e;
-      color: white;
-    }
-    .search-row button {
-      background: #007aff;
-      border: none;
-      border-radius: 24px;
-      padding: 0 20px;
-      font-weight: bold;
-      color: white;
-    }
-    .qr-btn {
-      background: #34c759;
-      border: none;
-      border-radius: 12px;
-      padding: 12px;
-      color: white;
-      font-weight: bold;
-      margin-top: 8px;
-      cursor: pointer;
-    }
-    .video-call {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: black;
-      z-index: 1000;
-      display: none;
-      flex-direction: column;
-    }
-    .video-call.active {
-      display: flex;
-    }
-    .remote-video {
-      flex: 1;
-      background: #000;
-    }
-    .remote-video video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .local-video {
-      position: absolute;
-      bottom: 20px;
-      right: 20px;
-      width: 120px;
-      height: 160px;
-      background: #333;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 2px solid white;
-    }
-    .local-video video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .call-controls {
-      position: absolute;
-      bottom: 30px;
-      left: 0;
-      right: 0;
-      display: flex;
-      justify-content: center;
-      gap: 30px;
-      background: rgba(0,0,0,0.6);
-      padding: 12px;
-    }
-    .call-controls button {
-      background: #ff3b30;
-      border: none;
-      border-radius: 50%;
-      width: 60px;
-      height: 60px;
-      font-size: 24px;
-      color: white;
-      cursor: pointer;
-    }
-    .qr-popup {
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      background: white;
-      padding: 12px;
-      border-radius: 16px;
-      z-index: 200;
-      text-align: center;
-    }
-    .hidden {
-      display: none;
-    }
-    .network-info {
-      font-size: 12px;
-      color: #8e8e93;
-      padding: 8px 16px;
-      background: #2c2c2e;
-      text-align: center;
-    }
-  </style>
-  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0F172A">
+    <title>Накопительный калькулятор</title>
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230F172A'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='%23F59E0B' font-family='Arial'%3E💰%3C/text%3E%3C/svg%3E">
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif;
+            background: #F8FAFC;
+            color: #0F172A;
+            padding: 20px 16px 40px;
+        }
+
+        /* Анимации и карточки */
+        .card {
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(2px);
+            border-radius: 28px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.05);
+            padding: 20px;
+            margin-bottom: 24px;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(226, 232, 240, 0.6);
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -12px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            font-size: 1.6rem;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #0F172A;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            font-weight: 500;
+            margin: 16px 0 12px 0;
+            color: #334155;
+        }
+
+        .grid-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        button, .btn {
+            background: #0F172A;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 44px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        button:active { transform: scale(0.96); background: #1E293B; }
+        .btn-outline {
+            background: white;
+            border: 1px solid #CBD5E1;
+            color: #0F172A;
+        }
+        .btn-outline:active { background: #F1F5F9; }
+        .btn-accent {
+            background: #F59E0B;
+            color: #0F172A;
+        }
+        .btn-danger {
+            background: #EF4444;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            text-align: left;
+            padding: 10px 6px;
+            border-bottom: 1px solid #E2E8F0;
+        }
+        th {
+            font-weight: 600;
+            color: #475569;
+        }
+        .money-positive { color: #10B981; font-weight: 600; }
+        .money-negative { color: #EF4444; }
+        .forecast { color: #F59E0B; font-weight: 500; }
+
+        input, select {
+            padding: 10px 12px;
+            border-radius: 24px;
+            border: 1px solid #CBD5E1;
+            background: white;
+            font-size: 0.9rem;
+            width: 100%;
+        }
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: flex-end;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 120px;
+        }
+        label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #475569;
+            margin-bottom: 4px;
+            display: block;
+        }
+        .scroll-table {
+            overflow-x: auto;
+            border-radius: 20px;
+        }
+        .balance-badge {
+            background: #EFF6FF;
+            border-radius: 40px;
+            padding: 6px 14px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .graph-container {
+            max-height: 300px;
+            margin-top: 12px;
+        }
+        footer {
+            text-align: center;
+            font-size: 0.7rem;
+            color: #94A3B8;
+            margin-top: 32px;
+        }
+        @media (max-width: 640px) {
+            body { padding: 16px 12px 32px; }
+            th, td { font-size: 0.75rem; padding: 8px 4px; }
+            .card { padding: 16px; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-<div id="app">
-  <!-- Экран входа -->
-  <div id="loginScreen" class="screen active">
-    <div class="auth-container">
-      <h2 style="text-align:center">P2P Messenger</h2>
-      <input type="text" id="loginUsername" placeholder="Логин (ник)">
-      <input type="password" id="loginPassword" placeholder="Пароль">
-      <button id="doLoginBtn">Войти</button>
-      <div class="auth-link" id="showRegisterLink">Нет аккаунта? Зарегистрироваться</div>
-      <button id="shareAppQRBtn" class="qr-btn">📲 Поделиться приложением (QR)</button>
-    </div>
-  </div>
 
-  <!-- Экран регистрации -->
-  <div id="registerScreen" class="screen">
-    <div class="auth-container">
-      <h2 style="text-align:center">Регистрация</h2>
-      <input type="text" id="regUsername" placeholder="Логин (ник)">
-      <input type="password" id="regPassword" placeholder="Пароль">
-      <input type="password" id="regPasswordConfirm" placeholder="Подтвердите пароль">
-      <button id="doRegisterBtn">Зарегистрироваться</button>
-      <div class="auth-link" id="showLoginLink">Уже есть аккаунт? Войти</div>
+<div style="max-width: 1400px; margin: 0 auto;">
+    <div class="card" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); color: white; border: none;">
+        <h1 style="color: white;">💰 Калькулятор накоплений</h1>
+        <p style="opacity: 0.8;">Добавляйте, снимайте, смотрите прогноз на 40 лет</p>
+        <div class="grid-buttons" style="margin-top: 12px;">
+            <button id="openAddModalBtn" class="btn-accent" style="background: #F59E0B; color:#0F172A;">+ Добавить деньги</button>
+            <button id="openWithdrawModalBtn" style="background: #334155;">- Снять деньги</button>
+            <button id="exportJsonBtn" class="btn-outline" style="background:rgba(255,255,255,0.1); color:white;">📁 Экспорт JSON</button>
+            <button id="importJsonTrigger" class="btn-outline" style="background:rgba(255,255,255,0.1); color:white;">📂 Импорт JSON</button>
+            <input type="file" id="importFileInput" accept=".json" style="display: none;" />
+        </div>
     </div>
-  </div>
 
-  <!-- Главный экран (список чатов) -->
-  <div id="mainScreen" class="screen">
-    <div class="chat-header">
-      <div style="flex:1; font-weight:600;">Чаты</div>
-      <button id="showInstallQRBtn" style="background:none; border:none; color:#007aff; font-size:20px;">📱 QR</button>
+    <!-- Форма добавления (модальное окно) -->
+    <div id="transactionModal" style="display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="max-width: 400px; margin: 20px; background: white;">
+            <h3 id="modalTitle">➕ Добавить деньги</h3>
+            <div class="form-group">
+                <label>Сумма (₽)</label>
+                <input type="number" id="txnAmount" step="1" value="1000">
+            </div>
+            <div class="form-group">
+                <label>Дата</label>
+                <input type="date" id="txnDate">
+            </div>
+            <div class="form-group">
+                <label>Комментарий (необяз.)</label>
+                <input type="text" id="txnDesc" placeholder="Премия, кэшбэк...">
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button id="confirmTxnBtn" class="btn-accent">Подтвердить</button>
+                <button id="closeModalBtn" class="btn-outline">Отмена</button>
+            </div>
+        </div>
     </div>
-    <div class="network-info" id="networkInfo"></div>
-    <div class="chat-list" id="chatList"></div>
-    <div class="add-contact-panel">
-      <div class="search-row">
-        <input type="text" id="searchNick" placeholder="Поиск по нику...">
-        <button id="searchBtn">Найти</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Экран чата -->
-  <div id="chatScreen" class="screen">
-    <div class="chat-header">
-      <button class="back-btn" id="chatBackBtn">←</button>
-      <div class="contact-name" id="chatContactName"></div>
-      <div class="call-buttons">
-        <button class="call-btn" id="audioCallBtn">📞</button>
-        <button class="call-btn" id="videoCallBtn">📹</button>
-      </div>
+    <!-- Вкладки -->
+    <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+        <button id="tabYearsBtn" class="btn" style="background:#F59E0B; color:#0F172A;">📆 Годы + прогноз</button>
+        <button id="tabMonthsBtn" class="btn-outline">📅 Месяцы</button>
+        <button id="tabLogBtn" class="btn-outline">📜 Лог операций</button>
+        <button id="tabGraphBtn" class="btn-outline">📈 График</button>
     </div>
-    <div class="messages-container" id="messagesContainer"></div>
-    <div class="input-area">
-      <input type="text" id="messageInput" placeholder="Сообщение">
-      <button id="sendMsgBtn">Отправить</button>
+
+    <!-- Панель глобального процента -->
+    <div class="card" style="padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <span>💸 Годовая процентная ставка (по умолчанию):</span>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <input type="number" id="globalPercent" step="0.5" value="5" style="width: 90px;"> %
+            <button id="applyGlobalPercent" class="btn-outline" style="padding: 6px 14px;">Применить</button>
+        </div>
     </div>
-  </div>
 
-  <!-- Оверлей видеозвонка -->
-  <div id="videoCallOverlay" class="video-call">
-    <div class="remote-video"><video id="remoteVideo" autoplay playsinline></video></div>
-    <div class="local-video"><video id="localVideo" autoplay playsinline muted></video></div>
-    <div class="call-controls"><button id="hangupBtn">📞</button></div>
-  </div>
-
-  <div id="qrPopup" class="qr-popup hidden"></div>
+    <!-- Контентные блоки -->
+    <div id="yearsTableContainer" class="card scroll-table"></div>
+    <div id="monthsTableContainer" class="card scroll-table" style="display: none;"></div>
+    <div id="logContainer" class="card scroll-table" style="display: none;"></div>
+    <div id="graphContainer" class="card" style="display: none;">
+        <h3>📊 Динамика баланса на конец года (факт)</h3>
+        <div class="graph-container">
+            <canvas id="balanceChart" width="400" height="250" style="max-width:100%; height:auto;"></canvas>
+        </div>
+    </div>
 </div>
+<footer>Данные хранятся локально. Прогноз на 40 лет: начальный баланс * (1+%) + чистый взнос за год</footer>
 
 <script>
-  // ---------------------------- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----------------------------
-  let currentUser = null;          // { username, peerId, encryptionKey }
-  let chats = [];                  // { peerId, username, encryptionKey, peer, online, lastSeen, unread }
-  let messages = {};               // peerId -> [{text, own, time, delivered}]
-  let pendingMessages = [];        // сообщения для офлайн-контактов
-  let currentChatPeerId = null;
-  let currentCall = null;
-  let localStream = null;
-  let peer = null;
+    // ---------- Глобальное состояние ----------
+    let transactions = [];     // { id, date: "2026-03-15", amount: число (+пополнение / -снятие), description }
+    let customYearInterest = {}; // { "2026": 6.5, ... }
+    let defaultInterest = 5.0;   // %
+    let chartInstance = null;
 
-  // ---------------------------- КРИПТОГРАФИЯ ----------------------------
-  function deriveKeyFromPassword(password, salt) {
-    return CryptoJS.PBKDF2(password, salt, { keySize: 256/32, iterations: 10000 }).toString();
-  }
-  function encryptMessage(text, keyHex) {
-    const iv = CryptoJS.lib.WordArray.random(16);
-    const encrypted = CryptoJS.AES.encrypt(text, CryptoJS.enc.Hex.parse(keyHex), { iv: iv });
-    return iv.toString() + ':' + encrypted.toString();
-  }
-  function decryptMessage(cipherText, keyHex) {
-    try {
-      const parts = cipherText.split(':');
-      const iv = CryptoJS.enc.Hex.parse(parts[0]);
-      const encrypted = parts.slice(1).join(':');
-      const decrypted = CryptoJS.AES.decrypt(encrypted, CryptoJS.enc.Hex.parse(keyHex), { iv: iv });
-      return decrypted.toString(CryptoJS.enc.Utf8);
-    } catch(e) { return "⚠️ Ошибка"; }
-  }
-
-  // ---------------------------- ХРАНЕНИЕ ДАННЫХ ПОЛЬЗОВАТЕЛЯ (ЧАТЫ, СООБЩЕНИЯ) ----------------------------
-  function saveUserData() {
-    if (!currentUser) return;
-    const data = {
-      username: currentUser.username,
-      peerId: currentUser.peerId,
-      encryptionKey: currentUser.encryptionKey,
-      chats: chats.map(c => ({ peerId: c.peerId, username: c.username, encryptionKey: c.encryptionKey })),
-      messages: messages
-    };
-    localStorage.setItem('p2p_user_data', JSON.stringify(data));
-  }
-  function loadUserData() {
-    const raw = localStorage.getItem('p2p_user_data');
-    if (!raw) return null;
-    try { return JSON.parse(raw); } catch(e) { return null; }
-  }
-
-  // ---------------------------- РЕГИСТРАЦИЯ И ВХОД (исправленные) ----------------------------
-  function registerUser(username, password, passwordConfirm) {
-    if (password !== passwordConfirm) {
-      alert('Пароли не совпадают');
-      return false;
-    }
-    if (username.length < 3) {
-      alert('Логин должен быть не менее 3 символов');
-      return false;
-    }
-    if (password.length < 4) {
-      alert('Пароль должен быть не менее 4 символов');
-      return false;
-    }
-    // Проверяем, нет ли уже зарегистрированного пользователя с таким логином на этом устройстве
-    const existingAuth = localStorage.getItem('p2p_auth_' + username);
-    if (existingAuth) {
-      alert('Пользователь с таким логином уже зарегистрирован на этом устройстве');
-      return false;
-    }
-    // Генерируем соль и ключ
-    const salt = CryptoJS.lib.WordArray.random(16).toString();
-    const encryptionKey = deriveKeyFromPassword(password, salt);
-    const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2);
-    const passwordHash = CryptoJS.SHA256(password).toString();
-    // Сохраняем данные авторизации отдельно по логину
-    const authData = {
-      username: username,
-      passwordHash: passwordHash,
-      salt: salt,
-      peerId: peerId,
-      encryptionKey: encryptionKey
-    };
-    localStorage.setItem('p2p_auth_' + username, JSON.stringify(authData));
-    // Сразу устанавливаем текущего пользователя
-    currentUser = {
-      username: username,
-      peerId: peerId,
-      encryptionKey: encryptionKey
-    };
-    // Очищаем старые чаты (новый пользователь)
-    chats = [];
-    messages = {};
-    pendingMessages = [];
-    saveUserData();
-    alert('Регистрация успешна!');
-    return true;
-  }
-
-  function loginUser(username, password) {
-    const authKey = 'p2p_auth_' + username;
-    const storedAuth = localStorage.getItem(authKey);
-    if (!storedAuth) {
-      alert('Пользователь не зарегистрирован');
-      return false;
-    }
-    const authData = JSON.parse(storedAuth);
-    const inputHash = CryptoJS.SHA256(password).toString();
-    if (authData.passwordHash !== inputHash) {
-      alert('Неверный пароль');
-      return false;
-    }
-    // Вход успешен
-    currentUser = {
-      username: authData.username,
-      peerId: authData.peerId,
-      encryptionKey: authData.encryptionKey
-    };
-    // Загружаем чаты и сообщения, если есть
-    const savedData = loadUserData();
-    if (savedData && savedData.username === currentUser.username) {
-      chats = savedData.chats.map(c => ({ ...c, peer: null, online: false, lastSeen: 0, unread: 0 }));
-      messages = savedData.messages;
-    } else {
-      chats = [];
-      messages = {};
-    }
-    pendingMessages = [];
-    alert('Вход выполнен');
-    return true;
-  }
-
-  // ---------------------------- P2P ИНИЦИАЛИЗАЦИЯ ----------------------------
-  function initPeer() {
-    return new Promise((resolve, reject) => {
-      const peerId = currentUser.peerId;
-      peer = new Peer(peerId, {
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true,
-        debug: 2
-      });
-      peer.on('open', () => {
-        console.log('PeerJS open:', peerId);
-        resolve();
-      });
-      peer.on('error', (err) => {
-        console.error('PeerJS error', err);
-        reject(err);
-      });
-      peer.on('connection', (conn) => {
-        let chat = chats.find(c => c.peerId === conn.peer);
-        if (!chat) {
-          // Новый контакт – ждём handshake
-          conn.on('data', (data) => {
-            const msg = JSON.parse(data);
-            if (msg.type === 'handshake') {
-              chat = {
-                peerId: conn.peer,
-                username: msg.username,
-                encryptionKey: msg.encryptionKey,
-                peer: conn,
-                online: true,
-                lastSeen: Date.now(),
-                unread: 0
-              };
-              chats.push(chat);
-              saveUserData();
-              setupConnection(conn, chat);
-              conn.send(JSON.stringify({ type: 'handshake_ack', encryptionKey: currentUser.encryptionKey }));
-              renderChatList();
-              flushPendingMessages(chat);
-            }
-          });
+    // Вспомогательные функции
+    const getTodayString = () => new Date().toISOString().slice(0,10);
+    
+    function loadFromLocalStorage() {
+        const stored = localStorage.getItem("savings_calc_data");
+        if(stored) {
+            try {
+                const data = JSON.parse(stored);
+                transactions = data.transactions || [];
+                customYearInterest = data.customYearInterest || {};
+                defaultInterest = data.defaultInterest !== undefined ? data.defaultInterest : 5.0;
+                document.getElementById("globalPercent").value = defaultInterest;
+            } catch(e) {}
         } else {
-          chat.peer = conn;
-          chat.online = true;
-          chat.lastSeen = Date.now();
-          setupConnection(conn, chat);
-          conn.send(JSON.stringify({ type: 'handshake', username: currentUser.username, encryptionKey: currentUser.encryptionKey }));
-          flushPendingMessages(chat);
-          renderChatList();
+            // Демо-транзакция для примера
+            transactions = [
+                { id: Date.now()+1, date: "2026-01-15", amount: 100000, description: "Стартовый капитал" },
+                { id: Date.now()+2, date: "2026-06-10", amount: 25000, description: "Премия" },
+                { id: Date.now()+3, date: "2027-03-20", amount: -15000, description: "Ремонт" },
+            ];
+            customYearInterest = {};
+            defaultInterest = 5.0;
+            document.getElementById("globalPercent").value = defaultInterest;
         }
-      });
-    });
-  }
-
-  function setupConnection(conn, chat) {
-    conn.on('data', (data) => {
-      const packet = JSON.parse(data);
-      if (packet.type === 'chat') {
-        const decrypted = decryptMessage(packet.cipher, chat.encryptionKey);
-        if (!messages[chat.peerId]) messages[chat.peerId] = [];
-        messages[chat.peerId].push({ text: decrypted, own: false, time: new Date().toLocaleTimeString(), delivered: true });
-        chat.unread = (chat.unread || 0) + 1;
-        saveUserData();
-        if (currentChatPeerId === chat.peerId) renderMessages();
-        renderChatList();
-        showNotification(chat.username, decrypted);
-      } else if (packet.type === 'handshake_ack') {
-        chat.encryptionKey = packet.encryptionKey;
-        saveUserData();
-      } else if (packet.type === 'search_request') {
-        handleSearchRequest(conn, packet);
-      } else if (packet.type === 'search_response') {
-        handleSearchResponse(packet);
-      } else if (packet.type === 'call_offer') {
-        handleIncomingCall(conn, packet);
-      } else if (packet.type === 'call_candidate') {
-        if (currentCall) currentCall.pc.addIceCandidate(new RTCIceCandidate(packet.candidate));
-      }
-    });
-    conn.on('close', () => {
-      chat.online = false;
-      chat.lastSeen = Date.now();
-      renderChatList();
-      if (currentChatPeerId === chat.peerId) {
-        document.getElementById('chatContactName').innerHTML = `${chat.username} <span style="font-size:12px; color:#8e8e93;">был(а) ${new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
-      }
-    });
-  }
-
-  // ---------------------------- ПОИСК КОНТАКТОВ ----------------------------
-  function searchContact(nick) {
-    let sent = false;
-    for (let chat of chats) {
-      if (chat.peer && chat.peer.open) {
-        chat.peer.send(JSON.stringify({
-          type: 'search_request',
-          nick: nick,
-          from: currentUser.peerId
-        }));
-        sent = true;
-      }
+        renderAll();
     }
-    if (!sent) {
-      alert('Нет активных контактов для поиска. Добавьте кого-нибудь вручную или подождите.');
+    
+    function saveToLocalStorage() {
+        const data = {
+            transactions,
+            customYearInterest,
+            defaultInterest
+        };
+        localStorage.setItem("savings_calc_data", JSON.stringify(data));
     }
-    window.searchResultReceived = false;
-    setTimeout(() => {
-      if (!window.searchResultReceived) {
-        alert('Пользователь не найден в сети');
-      }
-    }, 3000);
-  }
 
-  function handleSearchRequest(conn, packet) {
-    if (currentUser.username.toLowerCase() === packet.nick.toLowerCase()) {
-      conn.send(JSON.stringify({
-        type: 'search_response',
-        peerId: currentUser.peerId,
-        username: currentUser.username,
-        requester: packet.from
-      }));
-    }
-  }
-
-  function handleSearchResponse(packet) {
-    window.searchResultReceived = true;
-    if (packet.peerId === currentUser.peerId) return;
-    let existing = chats.find(c => c.peerId === packet.peerId);
-    if (!existing) {
-      const newChat = {
-        peerId: packet.peerId,
-        username: packet.username,
-        encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-        peer: null,
-        online: false,
-        lastSeen: 0,
-        unread: 0
-      };
-      chats.push(newChat);
-      saveUserData();
-      renderChatList();
-      connectToPeer(newChat);
-      alert(`Контакт ${packet.username} добавлен`);
-    } else {
-      alert(`${packet.username} уже в ваших контактах`);
-    }
-  }
-
-  function connectToPeer(chat) {
-    if (chat.peer) return;
-    const conn = peer.connect(chat.peerId);
-    conn.on('open', () => {
-      chat.peer = conn;
-      chat.online = true;
-      chat.lastSeen = Date.now();
-      setupConnection(conn, chat);
-      conn.send(JSON.stringify({ type: 'handshake', username: currentUser.username, encryptionKey: currentUser.encryptionKey }));
-      renderChatList();
-      flushPendingMessages(chat);
-    });
-    conn.on('close', () => {
-      chat.online = false;
-      chat.lastSeen = Date.now();
-      renderChatList();
-    });
-  }
-
-  function flushPendingMessages(chat) {
-    if (!chat.peer || !chat.peer.open) return;
-    const pending = pendingMessages.filter(m => m.peerId === chat.peerId);
-    for (let p of pending) {
-      sendChatMessageDirect(chat, p.text);
-    }
-    pendingMessages = pendingMessages.filter(m => m.peerId !== chat.peerId);
-  }
-
-  // ---------------------------- ОТПРАВКА СООБЩЕНИЙ ----------------------------
-  function sendChatMessage(chat, text) {
-    if (!chat.peer || !chat.peer.open) {
-      pendingMessages.push({ peerId: chat.peerId, text });
-      if (!messages[chat.peerId]) messages[chat.peerId] = [];
-      messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: false });
-      saveUserData();
-      renderMessages();
-      renderChatList();
-      alert('Сообщение будет доставлено, когда контакт появится в сети');
-      return;
-    }
-    sendChatMessageDirect(chat, text);
-  }
-
-  function sendChatMessageDirect(chat, text) {
-    const cipher = encryptMessage(text, chat.encryptionKey);
-    chat.peer.send(JSON.stringify({ type: 'chat', cipher: cipher, msgId: Date.now() }));
-    if (!messages[chat.peerId]) messages[chat.peerId] = [];
-    messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: true });
-    saveUserData();
-    renderMessages();
-    renderChatList();
-  }
-
-  // ---------------------------- ЗВОНКИ (упрощённо, но рабочие) ----------------------------
-  async function startCall(video) {
-    if (!currentChatPeerId) return;
-    const chat = chats.find(c => c.peerId === currentChatPeerId);
-    if (!chat || !chat.peer) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
-      localStream = stream;
-      document.getElementById('localVideo').srcObject = stream;
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-      pc.onicecandidate = event => {
-        if (event.candidate) {
-          chat.peer.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
+    // Получить баланс на конкретную дату (включительно)
+    function getBalanceUpToDate(endDateStr) {
+        let balance = 0;
+        const sorted = [...transactions].sort((a,b)=>a.date.localeCompare(b.date));
+        for(let t of sorted) {
+            if(t.date <= endDateStr) balance += t.amount;
         }
-      };
-      pc.ontrack = event => {
-        document.getElementById('remoteVideo').srcObject = event.streams[0];
-      };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      chat.peer.send(JSON.stringify({ type: 'call_offer', sdp: pc.localDescription }));
-      currentCall = { pc, chat };
-      document.getElementById('videoCallOverlay').classList.add('active');
-    } catch(e) {
-      alert('Не удалось получить доступ к камере/микрофону');
+        return balance;
     }
-  }
 
-  function handleIncomingCall(conn, packet) {
-    if (currentCall) {
-      conn.send(JSON.stringify({ type: 'call_busy' }));
-      return;
-    }
-    const accept = confirm('Входящий звонок. Принять?');
-    if (!accept) return;
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-      localStream = stream;
-      document.getElementById('localVideo').srcObject = stream;
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-      pc.onicecandidate = event => {
-        if (event.candidate) {
-          conn.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
+    // Баланс на начало года (1 января)
+    function getBalanceStartOfYear(year) {
+        const dateStr = `${year}-01-01`;
+        let balance = 0;
+        for(let t of transactions) {
+            if(t.date < dateStr) balance += t.amount;
         }
-      };
-      pc.ontrack = event => {
-        document.getElementById('remoteVideo').srcObject = event.streams[0];
-      };
-      pc.setRemoteDescription(new RTCSessionDescription(packet.sdp));
-      pc.createAnswer().then(answer => {
-        pc.setLocalDescription(answer);
-        conn.send(JSON.stringify({ type: 'call_answer', sdp: pc.localDescription }));
-      });
-      currentCall = { pc, chat: chats.find(c => c.peer === conn) };
-      document.getElementById('videoCallOverlay').classList.add('active');
-    });
-  }
-
-  function endCall() {
-    if (currentCall) {
-      currentCall.pc.close();
-      if (localStream) localStream.getTracks().forEach(t => t.stop());
-      localStream = null;
-      currentCall = null;
+        return balance;
     }
-    document.getElementById('videoCallOverlay').classList.remove('active');
-  }
 
-  // ---------------------------- UI РЕНДЕРИНГ ----------------------------
-  function renderChatList() {
-    const container = document.getElementById('chatList');
-    container.innerHTML = '';
-    for (let chat of chats) {
-      const lastMsg = messages[chat.peerId] ? messages[chat.peerId][messages[chat.peerId].length-1] : null;
-      const statusText = chat.online ? '🟢 в сети' : `был(а) ${new Date(chat.lastSeen).toLocaleTimeString()}`;
-      const div = document.createElement('div');
-      div.className = 'chat-item';
-      div.innerHTML = `
-        <div class="chat-info" style="flex:1">
-          <div class="chat-name">${escapeHtml(chat.username)} ${chat.unread ? `<span style="background:#007aff; border-radius:12px; padding:2px 8px; font-size:12px;">${chat.unread}</span>` : ''}</div>
-          <div class="last-message">${lastMsg ? escapeHtml(lastMsg.text.substring(0,30)) : 'Нет сообщений'}</div>
-          <div class="chat-status ${chat.online ? 'online-status' : ''}">${statusText}</div>
-        </div>
-        <div class="delete-chat" data-peer="${chat.peerId}">🗑️</div>
-      `;
-      div.querySelector('.chat-info').onclick = () => openChat(chat);
-      const delBtn = div.querySelector('.delete-chat');
-      delBtn.onclick = (e) => {
-        e.stopPropagation();
-        if (confirm('Удалить чат? Все сообщения будут стёрты.')) {
-          deleteChat(chat.peerId);
+    // Агрегация по месяцам (все месяцы с транзакциями)
+    function getMonthlyData() {
+        const monthlyMap = new Map(); // key "YYYY-MM"
+        const sorted = [...transactions].sort((a,b)=>a.date.localeCompare(b.date));
+        let runningBalance = 0;
+        // сначала пройдём для вычисления баланса на конец каждого месяца
+        for(let t of sorted) {
+            runningBalance += t.amount;
+            const ym = t.date.slice(0,7);
+            if(!monthlyMap.has(ym)) {
+                monthlyMap.set(ym, { added:0, withdrawn:0, endBalance:0, year: parseInt(ym.slice(0,4)), month: parseInt(ym.slice(5)) });
+            }
+            let rec = monthlyMap.get(ym);
+            if(t.amount > 0) rec.added += t.amount;
+            else rec.withdrawn += Math.abs(t.amount);
+            rec.endBalance = runningBalance; // после транзакции
+            monthlyMap.set(ym, rec);
         }
-      };
-      container.appendChild(div);
+        // корректировка конечного баланса (максимальный balance в месяц)
+        const monthsArray = Array.from(monthlyMap.entries()).map(([key,val]) => ({ key, ...val }));
+        monthsArray.sort((a,b)=>a.key.localeCompare(b.key));
+        return monthsArray;
     }
-    if (chats.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding:20px;">Нет чатов. Найдите собеседника по нику.</div>';
+
+    // Годовая таблица (от первого года до текущий + 40 лет)
+    function getYearlyData() {
+        if(transactions.length === 0) return [];
+        const yearsSet = new Set();
+        for(let t of transactions) {
+            yearsSet.add(parseInt(t.date.slice(0,4)));
+        }
+        const minYear = Math.min(...yearsSet);
+        const currentYear = new Date().getFullYear();
+        const maxYear = currentYear + 40;
+        const yearsList = [];
+        for(let y = minYear; y <= maxYear; y++) yearsList.push(y);
+        
+        const yearlyStats = [];
+        let previousActualBalance = null; // баланс на конец прошлого года (факт)
+        
+        for(let i=0; i<yearsList.length; i++) {
+            const year = yearsList[i];
+            const startBalance = (i===0) ? getBalanceStartOfYear(year) : (previousActualBalance !== null ? previousActualBalance : 0);
+            // сумма добавлений и снятий за год
+            let added = 0, withdrawn = 0;
+            for(let t of transactions) {
+                const tyear = parseInt(t.date.slice(0,4));
+                if(tyear === year) {
+                    if(t.amount > 0) added += t.amount;
+                    else withdrawn += Math.abs(t.amount);
+                }
+            }
+            const netFlow = added - withdrawn;
+            const endActualBalance = getBalanceUpToDate(`${year}-12-31`);
+            // процент для года: если задан кастомный, иначе default
+            const interest = customYearInterest[year] !== undefined ? customYearInterest[year] : defaultInterest;
+            // Прогноз: начальный баланс * (1 + %/100) + чистый поток (добавлено-снято)
+            const forecasted = startBalance * (1 + interest/100) + netFlow;
+            yearlyStats.push({
+                year,
+                startBalance,
+                added,
+                withdrawn,
+                netFlow,
+                interest,
+                forecastEnd: forecasted,
+                actualEnd: endActualBalance,
+                isFuture: year > currentYear
+            });
+            previousActualBalance = endActualBalance; // для будущих годов используем фактический предыдущий (если год будущий, то фактического нет? но он будет как последний известный)
+            if(year > currentYear && yearlyStats[i-1] && yearlyStats[i-1].isFuture) {
+                // для будущих годов цепочка: начальный баланс = прогноз предыдущего года
+                if(i>0 && yearlyStats[i-1].isFuture) {
+                    yearlyStats[i].startBalance = yearlyStats[i-1].forecastEnd;
+                    // пересчитать прогноз для будущего (без новых операций)
+                    const newNet = 0; // в будущих годах по умолчанию нет операций, но пользователь может добавить транзакции позже
+                    const newAdded = 0, newWithdrawn=0;
+                    const newInterest = customYearInterest[year] !== undefined ? customYearInterest[year] : defaultInterest;
+                    yearlyStats[i].added = newAdded;
+                    yearlyStats[i].withdrawn = newWithdrawn;
+                    yearlyStats[i].netFlow = 0;
+                    yearlyStats[i].interest = newInterest;
+                    yearlyStats[i].forecastEnd = yearlyStats[i].startBalance * (1 + newInterest/100);
+                    yearlyStats[i].actualEnd = null; // будущий факт отсутствует
+                }
+            }
+            // повторная корректировка для будущих цепочек
+            if(year > currentYear) {
+                if(i>0 && yearlyStats[i-1].isFuture) {
+                    yearlyStats[i].startBalance = yearlyStats[i-1].forecastEnd;
+                    yearlyStats[i].added = 0;
+                    yearlyStats[i].withdrawn = 0;
+                    yearlyStats[i].netFlow = 0;
+                    yearlyStats[i].interest = customYearInterest[year] !== undefined ? customYearInterest[year] : defaultInterest;
+                    yearlyStats[i].forecastEnd = yearlyStats[i].startBalance * (1 + yearlyStats[i].interest/100);
+                    yearlyStats[i].actualEnd = null;
+                } else if(!yearlyStats[i-1]?.isFuture && year > currentYear) {
+                    yearlyStats[i].startBalance = yearlyStats[i-1].actualEnd;
+                    yearlyStats[i].added = 0;
+                    yearlyStats[i].withdrawn = 0;
+                    yearlyStats[i].netFlow = 0;
+                    yearlyStats[i].interest = customYearInterest[year] !== undefined ? customYearInterest[year] : defaultInterest;
+                    yearlyStats[i].forecastEnd = yearlyStats[i].startBalance * (1 + yearlyStats[i].interest/100);
+                    yearlyStats[i].actualEnd = null;
+                }
+            }
+        }
+        return yearlyStats;
     }
-  }
 
-  function deleteChat(peerId) {
-    chats = chats.filter(c => c.peerId !== peerId);
-    delete messages[peerId];
-    saveUserData();
-    if (currentChatPeerId === peerId) {
-      document.getElementById('chatScreen').classList.remove('active');
-      document.getElementById('mainScreen').classList.add('active');
-      currentChatPeerId = null;
+    // Рендер таблиц и лога
+    function renderYearsTable() {
+        const data = getYearlyData();
+        if(!data.length) return "<div>Нет данных, добавьте транзакцию</div>";
+        let html = `<h2>📆 Годы & прогноз на 40 лет</h2><div class="scroll-table"><table><thead><tr>
+            <th>Год</th><th>Нач. баланс</th><th>Добавлено</th><th>Снято</th><th>% ставка</th><th>Прогноз (конец года)</th><th>Факт (конец года)</th>
+        </tr></thead><tbody>`;
+        for(let row of data) {
+            const interestEditable = `<input type="number" step="0.5" value="${row.interest}" data-year="${row.year}" class="year-interest-input" style="width:70px;">`;
+            const forecastDisplay = row.forecastEnd !== undefined ? row.forecastEnd.toLocaleString('ru-RU') + " ₽" : "—";
+            const actualDisplay = (row.actualEnd !== null && row.actualEnd !== undefined) ? row.actualEnd.toLocaleString('ru-RU') + " ₽" : (row.isFuture ? "—" : "0 ₽");
+            html += `<tr>
+                <td>${row.year}</td>
+                <td>${row.startBalance.toLocaleString('ru-RU')} ₽</td>
+                <td class="money-positive">${row.added.toLocaleString('ru-RU')} ₽</td>
+                <td class="money-negative">${row.withdrawn.toLocaleString('ru-RU')} ₽</td>
+                <td>${interestEditable}</td>
+                <td class="forecast">${forecastDisplay}</td>
+                <td>${actualDisplay}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div><p style="font-size:12px; margin-top:8px;">⚡ Прогноз = Нач.баланс × (1+%/100) + (Добавлено − Снято). Для будущих лет операции = 0.</p>`;
+        return html;
     }
-    renderChatList();
-  }
-
-  function openChat(chat) {
-    currentChatPeerId = chat.peerId;
-    document.getElementById('chatContactName').innerHTML = `${escapeHtml(chat.username)} <span style="font-size:12px; color:#8e8e93;">${chat.online ? 'в сети' : 'был(а) ' + new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
-    renderMessages();
-    chat.unread = 0;
-    saveUserData();
-    renderChatList();
-    document.getElementById('mainScreen').classList.remove('active');
-    document.getElementById('chatScreen').classList.add('active');
-  }
-
-  function renderMessages() {
-    const container = document.getElementById('messagesContainer');
-    container.innerHTML = '';
-    const msgs = messages[currentChatPeerId] || [];
-    msgs.forEach(msg => {
-      const div = document.createElement('div');
-      div.className = `message ${msg.own ? 'own' : ''}`;
-      div.innerHTML = `<div class="message-text">${escapeHtml(msg.text)}</div><div class="message-time">${msg.time}</div>`;
-      container.appendChild(div);
-    });
-    container.scrollTop = container.scrollHeight;
-  }
-
-  function showNotification(title, body) {
-    if (Notification.permission === 'granted' && document.hidden && navigator.serviceWorker) {
-      navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body, icon: 'icon.png' }));
+    
+    function renderMonthsTable() {
+        const months = getMonthlyData();
+        if(!months.length) return "<div>Нет операций</div>";
+        let html = `<h2>📅 Помесячная динамика</h2><div class="scroll-table"><table><thead><tr>
+            <th>Год-месяц</th><th>Пополнения</th><th>Снятия</th><th>Изменение</th><th>Баланс на конец месяца</th>
+        </tr></thead><tbody>`;
+        for(let m of months) {
+            const change = m.added - m.withdrawn;
+            html += `<tr>
+                <td>${m.key}</td>
+                <td class="money-positive">${m.added.toLocaleString('ru-RU')} ₽</td>
+                <td class="money-negative">${m.withdrawn.toLocaleString('ru-RU')} ₽</td>
+                <td>${change >=0 ? '+' : ''}${change.toLocaleString('ru-RU')} ₽</td>
+                <td><strong>${m.endBalance.toLocaleString('ru-RU')} ₽</strong></td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+        return html;
     }
-  }
-
-  function escapeHtml(str) {
-    return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]);
-  }
-
-  // ---------------------------- УСТАНОВКА PWA И QR ----------------------------
-  function showInstallQR() {
-    const installUrl = window.location.href;
-    const qrDiv = document.getElementById('qrPopup');
-    qrDiv.innerHTML = '';
-    new QRCode(qrDiv, { text: installUrl, width: 200, height: 200 });
-    qrDiv.classList.remove('hidden');
-    setTimeout(() => qrDiv.classList.add('hidden'), 30000);
-  }
-
-  function shareAppViaQR() {
-    showInstallQR();
-  }
-
-  // ---------------------------- ЗАПУСК ПРИЛОЖЕНИЯ ПОСЛЕ АВТОРИЗАЦИИ ----------------------------
-  async function startAppAfterAuth() {
-    try {
-      await initPeer();
-      for (let chat of chats) {
-        connectToPeer(chat);
-      }
-      renderChatList();
-      document.getElementById('loginScreen').classList.remove('active');
-      document.getElementById('registerScreen').classList.remove('active');
-      document.getElementById('mainScreen').classList.add('active');
-      document.getElementById('networkInfo').innerText = `Ваш ID: ${currentUser.peerId.slice(0,12)}...`;
-    } catch(e) {
-      alert('Ошибка подключения к сети: ' + e.message);
+    
+    function renderLog() {
+        if(!transactions.length) return "<div>Журнал пуст. Добавьте операции.</div>";
+        const sorted = [...transactions].sort((a,b)=>b.date.localeCompare(a.date));
+        let html = `<h2>📜 История операций</h2><div class="scroll-table"><table><thead><tr>
+            <th>Дата</th><th>Сумма</th><th>Комментарий</th><th></th>
+        </tr></thead><tbody>`;
+        for(let t of sorted) {
+            const signClass = t.amount > 0 ? "money-positive" : "money-negative";
+            const signText = t.amount > 0 ? `+${t.amount.toLocaleString('ru-RU')} ₽` : `${t.amount.toLocaleString('ru-RU')} ₽`;
+            html += `<tr>
+                <td>${t.date}</td>
+                <td class="${signClass}">${signText}</td>
+                <td>${t.description || "—"}</td>
+                <td><button class="delete-txn" data-id="${t.id}" style="background:#EF4444; padding:4px 12px; font-size:12px;">✖</button></td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+        return html;
     }
-  }
-
-  // ---------------------------- ОБРАБОТЧИКИ UI ----------------------------
-  document.getElementById('doLoginBtn').onclick = async () => {
-    const user = document.getElementById('loginUsername').value.trim();
-    const pass = document.getElementById('loginPassword').value;
-    if (!user || !pass) {
-      alert('Введите логин и пароль');
-      return;
+    
+    function updateChart() {
+        const yearly = getYearlyData();
+        const filtered = yearly.filter(y => y.actualEnd !== null && y.actualEnd !== undefined);
+        const labels = filtered.map(y => y.year);
+        const balances = filtered.map(y => y.actualEnd);
+        const ctx = document.getElementById('balanceChart').getContext('2d');
+        if(chartInstance) chartInstance.destroy();
+        if(labels.length){
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets: [{ label: 'Фактический баланс (конец года)', data: balances, borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.1)', tension: 0.3, fill: true }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { tooltip: { callbacks: { label: (ctx) => `${ctx.raw.toLocaleString('ru-RU')} ₽` } } } }
+            });
+        } else {
+            ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+        }
     }
-    if (loginUser(user, pass)) {
-      await startAppAfterAuth();
+    
+    let activeTab = "years";
+    function renderAll() {
+        document.getElementById("yearsTableContainer").innerHTML = renderYearsTable();
+        document.getElementById("monthsTableContainer").innerHTML = renderMonthsTable();
+        document.getElementById("logContainer").innerHTML = renderLog();
+        if(activeTab === "years") showYears();
+        else if(activeTab === "months") showMonths();
+        else if(activeTab === "log") showLog();
+        else if(activeTab === "graph") showGraph();
+        // Добавить обработчики для изменения процентов в таблице годов
+        document.querySelectorAll('.year-interest-input').forEach(input => {
+            input.removeEventListener('change', handleInterestChange);
+            input.addEventListener('change', handleInterestChange);
+        });
+        document.querySelectorAll('.delete-txn').forEach(btn => {
+            btn.removeEventListener('click', handleDeleteTxn);
+            btn.addEventListener('click', handleDeleteTxn);
+        });
+        saveToLocalStorage();
+        if(activeTab === "graph") updateChart();
     }
-  };
-  document.getElementById('doRegisterBtn').onclick = async () => {
-    const user = document.getElementById('regUsername').value.trim();
-    const pass = document.getElementById('regPassword').value;
-    const confirm = document.getElementById('regPasswordConfirm').value;
-    if (!user || !pass || !confirm) {
-      alert('Заполните все поля');
-      return;
+    
+    function handleInterestChange(e) {
+        const year = parseInt(e.target.dataset.year);
+        let newVal = parseFloat(e.target.value);
+        if(isNaN(newVal)) newVal = defaultInterest;
+        customYearInterest[year] = newVal;
+        saveToLocalStorage();
+        renderAll();
     }
-    if (registerUser(user, pass, confirm)) {
-      await startAppAfterAuth();
+    
+    function handleDeleteTxn(e) {
+        const id = parseInt(e.target.dataset.id);
+        transactions = transactions.filter(t => t.id !== id);
+        renderAll();
     }
-  };
-  document.getElementById('showRegisterLink').onclick = () => {
-    document.getElementById('loginScreen').classList.remove('active');
-    document.getElementById('registerScreen').classList.add('active');
-  };
-  document.getElementById('showLoginLink').onclick = () => {
-    document.getElementById('registerScreen').classList.remove('active');
-    document.getElementById('loginScreen').classList.add('active');
-  };
-  document.getElementById('searchBtn').onclick = () => {
-    const nick = document.getElementById('searchNick').value.trim();
-    if (nick) searchContact(nick);
-  };
-  document.getElementById('sendMsgBtn').onclick = () => {
-    const text = document.getElementById('messageInput').value;
-    if (!text || !currentChatPeerId) return;
-    const chat = chats.find(c => c.peerId === currentChatPeerId);
-    if (chat) sendChatMessage(chat, text);
-    document.getElementById('messageInput').value = '';
-  };
-  document.getElementById('chatBackBtn').onclick = () => {
-    document.getElementById('chatScreen').classList.remove('active');
-    document.getElementById('mainScreen').classList.add('active');
-    currentChatPeerId = null;
-  };
-  document.getElementById('audioCallBtn').onclick = () => startCall(false);
-  document.getElementById('videoCallBtn').onclick = () => startCall(true);
-  document.getElementById('hangupBtn').onclick = () => endCall();
-  document.getElementById('showInstallQRBtn').onclick = () => showInstallQR();
-  document.getElementById('shareAppQRBtn').onclick = () => shareAppViaQR();
-
-  // ---------------------------- PWA: динамический манифест и service worker ----------------------------
-  (function setupPWA() {
-    const manifest = {
-      name: "P2P Messenger",
-      short_name: "P2PChat",
-      start_url: ".",
-      display: "standalone",
-      theme_color: "#1f1f1f",
-      background_color: "#0a0a0a",
-      icons: [{
-        src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAPeSURBVHgB7ZzNcdowFIZfCaGDhA7oIKGDhA5C6CB0A+kAdYN0A+kA6QbpBtINhA6gA5MO0kH4mUeW5Z8kS7ZlO2cknzPjGQhYr9KjLy9aCQAAAAAAAAAAAAAAAAAAAAD8RzRNc5um+T/TNP9YlmW+LMtNlmX3RVHcF0VxV5blT+P6iPLPNE2fkyT5KGV0URTFYvTw9/d3SVEUvyzL+iHLsu+i7HdVVe3lWvY4d/BnGIbhMs/zs6qqbhjHbdM0n/W/Dw8Pz1EU1WmavhqnqWHY+55RVVV/VVV1T1GUc/ngpZ/3jDzPz9M0/SzKfyrL8nSjfz8/P/cxDtHr+I+//vPz8/MUEfKa8v39/VZEyEd9Pk3TY8dxPq3rXpPko1y30+uGXk+c5/u0TdP0cK1c9zzPnef5LUk+r8eGYSjv9/svr32SJN9H4nmef4r6JkmSy98uyzIPw/BM1C0S5hXlj8dxfBVF0Zv+rYwliqL3six/ivkfhT/V+2maHmOMn8U8jDGGWFtrHMc/UjpdlnVd1z+MMfY8r06S5Bti/LUsyz9pmv7Q9zBN00+MsXfLso7Gv6f2o/5lWfZBCLkQ/zyUZflByofH1DHGvpZl+cEYf0vT9Lv+zfO8z7LsyHEcUc/zPDHG3pRl+UuUIeX/lE7T9FNZlr3wj1FvJv4t5fu+3xdFEYiySZJkEIXUOFr/rJRRlL/b7XbXvu/3iHWWZe+SJPki9tV1/csY+zHOtSRLpmnaG2MOwzD8HdFkWfZtNpsttNZpmh7rus7Fv/P5/BjHMRbjSLp5TgiO4zwURfFV+r/tdnsymUxCKYvj+EiU/aD/9zxvI8W6LMte+75P3T+H1pokiR8EwaUoh+M4M/nfdru9mM1mG+W/+mFZFj2XZZm8ePeo+4eHh+/aXkV0RFG0mM/nWzwpdbzseZ7N53NpmX2lS0l93/dZlmUJ3p/c+v1+T3Ec54+2eZRlOR+Px9sRIZ7nLcbjMVWxHY1GZvJlysvLyy3G+L3nefcYY2mPMnme0+vrK10CL6/fm2VZdzabbe5S+L22Wq2OMcaGEAIVe3gUY2w1n88vMpjj8Tg2n88pnDHeHw6HS+1mSJkHRhj9+PAaDAakMMaL+Xx+kYzVasVwA8Dj4+N9nudBEAQ3GONb2vD09PTM5+5Y+nT9d7vdiW3bi5JqO8Tv7+9H0zR/Msb6KIr2SgjlExFBKdNxHMJxHHIch5RlSVEUBeV/QhRFURRFURRFURRFUfzP/AUS8NwJ7bD9TgAAAABJRU5ErkJggg==",
-        sizes: "192x192",
-        type: "image/png"
-      }]
+    
+    // Добавить транзакцию (amount положительное или отрицательное)
+    function addTransaction(amountAbs, type, date, desc) {
+        if(!date) date = getTodayString();
+        let finalAmount = (type === 'deposit') ? Math.abs(amountAbs) : -Math.abs(amountAbs);
+        const newTxn = {
+            id: Date.now() + Math.random(),
+            date: date,
+            amount: finalAmount,
+            description: desc.trim() || (type === 'deposit' ? "Пополнение" : "Снятие")
+        };
+        transactions.push(newTxn);
+        transactions.sort((a,b)=>a.date.localeCompare(b.date));
+        renderAll();
+    }
+    
+    // Модальное окно
+    let currentModalType = 'deposit';
+    function openModal(type) {
+        currentModalType = type;
+        const modal = document.getElementById("transactionModal");
+        const title = document.getElementById("modalTitle");
+        title.innerText = type === 'deposit' ? "➕ Добавить деньги" : "➖ Снять деньги";
+        document.getElementById("txnAmount").value = "1000";
+        document.getElementById("txnDate").value = getTodayString();
+        document.getElementById("txnDesc").value = "";
+        modal.style.display = "flex";
+    }
+    function closeModal() { document.getElementById("transactionModal").style.display = "none"; }
+    
+    // Навигация вкладок
+    function showYears() { activeTab="years"; document.getElementById("yearsTableContainer").style.display="block"; document.getElementById("monthsTableContainer").style.display="none"; document.getElementById("logContainer").style.display="none"; document.getElementById("graphContainer").style.display="none"; tabStyle('years'); renderAll(); }
+    function showMonths() { activeTab="months"; document.getElementById("yearsTableContainer").style.display="none"; document.getElementById("monthsTableContainer").style.display="block"; document.getElementById("logContainer").style.display="none"; document.getElementById("graphContainer").style.display="none"; tabStyle('months'); renderAll(); }
+    function showLog() { activeTab="log"; document.getElementById("yearsTableContainer").style.display="none"; document.getElementById("monthsTableContainer").style.display="none"; document.getElementById("logContainer").style.display="block"; document.getElementById("graphContainer").style.display="none"; tabStyle('log'); renderAll(); }
+    function showGraph() { activeTab="graph"; document.getElementById("yearsTableContainer").style.display="none"; document.getElementById("monthsTableContainer").style.display="none"; document.getElementById("logContainer").style.display="none"; document.getElementById("graphContainer").style.display="block"; tabStyle('graph'); renderAll(); updateChart(); }
+    function tabStyle(active) {
+        const yearsBtn = document.getElementById("tabYearsBtn");
+        const monthsBtn = document.getElementById("tabMonthsBtn");
+        const logBtn = document.getElementById("tabLogBtn");
+        const graphBtn = document.getElementById("tabGraphBtn");
+        [yearsBtn, monthsBtn, logBtn, graphBtn].forEach(btn => btn.classList.remove("btn-accent"));
+        if(active==='years') yearsBtn.classList.add("btn-accent");
+        else if(active==='months') monthsBtn.classList.add("btn-accent");
+        else if(active==='log') logBtn.classList.add("btn-accent");
+        else if(active==='graph') graphBtn.classList.add("btn-accent");
+    }
+    
+    // Экспорт / Импорт
+    function exportJSON() {
+        const data = { transactions, customYearInterest, defaultInterest };
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "savings_backup.json";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    function importJSON(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                transactions = data.transactions || [];
+                customYearInterest = data.customYearInterest || {};
+                defaultInterest = data.defaultInterest !== undefined ? data.defaultInterest : 5.0;
+                document.getElementById("globalPercent").value = defaultInterest;
+                saveToLocalStorage();
+                renderAll();
+                alert("Импорт выполнен успешно!");
+            } catch(err) { alert("Ошибка файла JSON"); }
+        };
+        reader.readAsText(file);
+    }
+    
+    // Инициализация и обработчики
+    window.onload = () => {
+        loadFromLocalStorage();
+        document.getElementById("openAddModalBtn").onclick = () => openModal('deposit');
+        document.getElementById("openWithdrawModalBtn").onclick = () => openModal('withdraw');
+        document.getElementById("closeModalBtn").onclick = closeModal;
+        document.getElementById("confirmTxnBtn").onclick = () => {
+            let amount = parseFloat(document.getElementById("txnAmount").value);
+            if(isNaN(amount) || amount <= 0) { alert("Введите корректную сумму"); return; }
+            const date = document.getElementById("txnDate").value;
+            const desc = document.getElementById("txnDesc").value;
+            addTransaction(amount, currentModalType, date, desc);
+            closeModal();
+        };
+        document.getElementById("exportJsonBtn").onclick = exportJSON;
+        document.getElementById("importJsonTrigger").onclick = () => document.getElementById("importFileInput").click();
+        document.getElementById("importFileInput").onchange = (e) => { if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=""; };
+        document.getElementById("applyGlobalPercent").onclick = () => {
+            let newGlobal = parseFloat(document.getElementById("globalPercent").value);
+            if(!isNaN(newGlobal)) { defaultInterest = newGlobal; customYearInterest = {}; saveToLocalStorage(); renderAll(); }
+        };
+        document.getElementById("tabYearsBtn").onclick = showYears;
+        document.getElementById("tabMonthsBtn").onclick = showMonths;
+        document.getElementById("tabLogBtn").onclick = showLog;
+        document.getElementById("tabGraphBtn").onclick = showGraph;
+        showYears();
     };
-    const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-    const manifestURL = URL.createObjectURL(manifestBlob);
-    const link = document.createElement('link');
-    link.rel = 'manifest';
-    link.href = manifestURL;
-    document.head.appendChild(link);
-
-    if ('serviceWorker' in navigator) {
-      const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));`;
-      const swBlob = new Blob([swCode], {type: 'application/javascript'});
-      const swUrl = URL.createObjectURL(swBlob);
-      navigator.serviceWorker.register(swUrl).then(reg => {
-        console.log('SW registered');
-        if (Notification.permission !== 'granted') Notification.requestPermission();
-      });
-    }
-  })();
-
-  // Автозаполнение логина из последнего успешного входа (не сохраняем пароль)
-  (function() {
-    // Не делаем автозаполнение, чтобы не путать пользователя
-  })();
 </script>
 </body>
 </html>
