@@ -384,10 +384,10 @@
 
 <script>
   // ---------------------------- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----------------------------
-  let currentUser = null;
-  let chats = [];          // { peerId, username, encryptionKey, peer, online, lastSeen, unread }
-  let messages = {};       // peerId -> [{text, own, time, delivered}]
-  let pendingMessages = []; // сообщения для офлайн-контактов
+  let currentUser = null;          // { username, peerId, encryptionKey }
+  let chats = [];                  // { peerId, username, encryptionKey, peer, online, lastSeen, unread }
+  let messages = {};               // peerId -> [{text, own, time, delivered}]
+  let pendingMessages = [];        // сообщения для офлайн-контактов
   let currentChatPeerId = null;
   let currentCall = null;
   let localStream = null;
@@ -412,8 +412,8 @@
     } catch(e) { return "⚠️ Ошибка"; }
   }
 
-  // ---------------------------- ХРАНЕНИЕ ----------------------------
-  function saveData() {
+  // ---------------------------- ХРАНЕНИЕ ДАННЫХ ПОЛЬЗОВАТЕЛЯ (ЧАТЫ, СООБЩЕНИЯ) ----------------------------
+  function saveUserData() {
     if (!currentUser) return;
     const data = {
       username: currentUser.username,
@@ -422,12 +422,94 @@
       chats: chats.map(c => ({ peerId: c.peerId, username: c.username, encryptionKey: c.encryptionKey })),
       messages: messages
     };
-    localStorage.setItem('p2ptg_user', JSON.stringify(data));
+    localStorage.setItem('p2p_user_data', JSON.stringify(data));
   }
-  function loadData() {
-    const raw = localStorage.getItem('p2ptg_user');
+  function loadUserData() {
+    const raw = localStorage.getItem('p2p_user_data');
     if (!raw) return null;
     try { return JSON.parse(raw); } catch(e) { return null; }
+  }
+
+  // ---------------------------- РЕГИСТРАЦИЯ И ВХОД (исправленные) ----------------------------
+  function registerUser(username, password, passwordConfirm) {
+    if (password !== passwordConfirm) {
+      alert('Пароли не совпадают');
+      return false;
+    }
+    if (username.length < 3) {
+      alert('Логин должен быть не менее 3 символов');
+      return false;
+    }
+    if (password.length < 4) {
+      alert('Пароль должен быть не менее 4 символов');
+      return false;
+    }
+    // Проверяем, нет ли уже зарегистрированного пользователя с таким логином на этом устройстве
+    const existingAuth = localStorage.getItem('p2p_auth_' + username);
+    if (existingAuth) {
+      alert('Пользователь с таким логином уже зарегистрирован на этом устройстве');
+      return false;
+    }
+    // Генерируем соль и ключ
+    const salt = CryptoJS.lib.WordArray.random(16).toString();
+    const encryptionKey = deriveKeyFromPassword(password, salt);
+    const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2);
+    const passwordHash = CryptoJS.SHA256(password).toString();
+    // Сохраняем данные авторизации отдельно по логину
+    const authData = {
+      username: username,
+      passwordHash: passwordHash,
+      salt: salt,
+      peerId: peerId,
+      encryptionKey: encryptionKey
+    };
+    localStorage.setItem('p2p_auth_' + username, JSON.stringify(authData));
+    // Сразу устанавливаем текущего пользователя
+    currentUser = {
+      username: username,
+      peerId: peerId,
+      encryptionKey: encryptionKey
+    };
+    // Очищаем старые чаты (новый пользователь)
+    chats = [];
+    messages = {};
+    pendingMessages = [];
+    saveUserData();
+    alert('Регистрация успешна!');
+    return true;
+  }
+
+  function loginUser(username, password) {
+    const authKey = 'p2p_auth_' + username;
+    const storedAuth = localStorage.getItem(authKey);
+    if (!storedAuth) {
+      alert('Пользователь не зарегистрирован');
+      return false;
+    }
+    const authData = JSON.parse(storedAuth);
+    const inputHash = CryptoJS.SHA256(password).toString();
+    if (authData.passwordHash !== inputHash) {
+      alert('Неверный пароль');
+      return false;
+    }
+    // Вход успешен
+    currentUser = {
+      username: authData.username,
+      peerId: authData.peerId,
+      encryptionKey: authData.encryptionKey
+    };
+    // Загружаем чаты и сообщения, если есть
+    const savedData = loadUserData();
+    if (savedData && savedData.username === currentUser.username) {
+      chats = savedData.chats.map(c => ({ ...c, peer: null, online: false, lastSeen: 0, unread: 0 }));
+      messages = savedData.messages;
+    } else {
+      chats = [];
+      messages = {};
+    }
+    pendingMessages = [];
+    alert('Вход выполнен');
+    return true;
   }
 
   // ---------------------------- P2P ИНИЦИАЛИЗАЦИЯ ----------------------------
@@ -445,10 +527,14 @@
         console.log('PeerJS open:', peerId);
         resolve();
       });
-      peer.on('error', reject);
+      peer.on('error', (err) => {
+        console.error('PeerJS error', err);
+        reject(err);
+      });
       peer.on('connection', (conn) => {
         let chat = chats.find(c => c.peerId === conn.peer);
         if (!chat) {
+          // Новый контакт – ждём handshake
           conn.on('data', (data) => {
             const msg = JSON.parse(data);
             if (msg.type === 'handshake') {
@@ -462,7 +548,7 @@
                 unread: 0
               };
               chats.push(chat);
-              saveData();
+              saveUserData();
               setupConnection(conn, chat);
               conn.send(JSON.stringify({ type: 'handshake_ack', encryptionKey: currentUser.encryptionKey }));
               renderChatList();
@@ -490,21 +576,19 @@
         if (!messages[chat.peerId]) messages[chat.peerId] = [];
         messages[chat.peerId].push({ text: decrypted, own: false, time: new Date().toLocaleTimeString(), delivered: true });
         chat.unread = (chat.unread || 0) + 1;
-        saveData();
+        saveUserData();
         if (currentChatPeerId === chat.peerId) renderMessages();
         renderChatList();
         showNotification(chat.username, decrypted);
       } else if (packet.type === 'handshake_ack') {
         chat.encryptionKey = packet.encryptionKey;
-        saveData();
+        saveUserData();
       } else if (packet.type === 'search_request') {
         handleSearchRequest(conn, packet);
       } else if (packet.type === 'search_response') {
         handleSearchResponse(packet);
       } else if (packet.type === 'call_offer') {
         handleIncomingCall(conn, packet);
-      } else if (packet.type === 'call_answer') {
-        // обработка ответа
       } else if (packet.type === 'call_candidate') {
         if (currentCall) currentCall.pc.addIceCandidate(new RTCIceCandidate(packet.candidate));
       }
@@ -519,9 +603,8 @@
     });
   }
 
-  // ---------------------------- ПОИСК И ДОБАВЛЕНИЕ КОНТАКТОВ ----------------------------
+  // ---------------------------- ПОИСК КОНТАКТОВ ----------------------------
   function searchContact(nick) {
-    // Отправить запрос всем существующим контактам
     let sent = false;
     for (let chat of chats) {
       if (chat.peer && chat.peer.open) {
@@ -570,7 +653,7 @@
         unread: 0
       };
       chats.push(newChat);
-      saveData();
+      saveUserData();
       renderChatList();
       connectToPeer(newChat);
       alert(`Контакт ${packet.username} добавлен`);
@@ -613,7 +696,7 @@
       pendingMessages.push({ peerId: chat.peerId, text });
       if (!messages[chat.peerId]) messages[chat.peerId] = [];
       messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: false });
-      saveData();
+      saveUserData();
       renderMessages();
       renderChatList();
       alert('Сообщение будет доставлено, когда контакт появится в сети');
@@ -627,34 +710,38 @@
     chat.peer.send(JSON.stringify({ type: 'chat', cipher: cipher, msgId: Date.now() }));
     if (!messages[chat.peerId]) messages[chat.peerId] = [];
     messages[chat.peerId].push({ text, own: true, time: new Date().toLocaleTimeString(), delivered: true });
-    saveData();
+    saveUserData();
     renderMessages();
     renderChatList();
   }
 
-  // ---------------------------- ЗВОНКИ ----------------------------
+  // ---------------------------- ЗВОНКИ (упрощённо, но рабочие) ----------------------------
   async function startCall(video) {
     if (!currentChatPeerId) return;
     const chat = chats.find(c => c.peerId === currentChatPeerId);
     if (!chat || !chat.peer) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
-    localStream = stream;
-    document.getElementById('localVideo').srcObject = stream;
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-    pc.onicecandidate = event => {
-      if (event.candidate) {
-        chat.peer.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
-      }
-    };
-    pc.ontrack = event => {
-      document.getElementById('remoteVideo').srcObject = event.streams[0];
-    };
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    chat.peer.send(JSON.stringify({ type: 'call_offer', sdp: pc.localDescription }));
-    currentCall = { pc, chat };
-    document.getElementById('videoCallOverlay').classList.add('active');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
+      localStream = stream;
+      document.getElementById('localVideo').srcObject = stream;
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          chat.peer.send(JSON.stringify({ type: 'call_candidate', candidate: event.candidate }));
+        }
+      };
+      pc.ontrack = event => {
+        document.getElementById('remoteVideo').srcObject = event.streams[0];
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      chat.peer.send(JSON.stringify({ type: 'call_offer', sdp: pc.localDescription }));
+      currentCall = { pc, chat };
+      document.getElementById('videoCallOverlay').classList.add('active');
+    } catch(e) {
+      alert('Не удалось получить доступ к камере/микрофону');
+    }
   }
 
   function handleIncomingCall(conn, packet) {
@@ -709,7 +796,7 @@
       div.innerHTML = `
         <div class="chat-info" style="flex:1">
           <div class="chat-name">${escapeHtml(chat.username)} ${chat.unread ? `<span style="background:#007aff; border-radius:12px; padding:2px 8px; font-size:12px;">${chat.unread}</span>` : ''}</div>
-          <div class="last-message">${lastMsg ? lastMsg.text.substring(0,30) : 'Нет сообщений'}</div>
+          <div class="last-message">${lastMsg ? escapeHtml(lastMsg.text.substring(0,30)) : 'Нет сообщений'}</div>
           <div class="chat-status ${chat.online ? 'online-status' : ''}">${statusText}</div>
         </div>
         <div class="delete-chat" data-peer="${chat.peerId}">🗑️</div>
@@ -724,13 +811,15 @@
       };
       container.appendChild(div);
     }
-    if (chats.length === 0) container.innerHTML = '<div style="text-align:center; padding:20px;">Нет чатов. Найдите собеседника по нику.</div>';
+    if (chats.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:20px;">Нет чатов. Найдите собеседника по нику.</div>';
+    }
   }
 
   function deleteChat(peerId) {
     chats = chats.filter(c => c.peerId !== peerId);
     delete messages[peerId];
-    saveData();
+    saveUserData();
     if (currentChatPeerId === peerId) {
       document.getElementById('chatScreen').classList.remove('active');
       document.getElementById('mainScreen').classList.add('active');
@@ -741,10 +830,10 @@
 
   function openChat(chat) {
     currentChatPeerId = chat.peerId;
-    document.getElementById('chatContactName').innerHTML = `${chat.username} <span style="font-size:12px; color:#8e8e93;">${chat.online ? 'в сети' : 'был(а) ' + new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
+    document.getElementById('chatContactName').innerHTML = `${escapeHtml(chat.username)} <span style="font-size:12px; color:#8e8e93;">${chat.online ? 'в сети' : 'был(а) ' + new Date(chat.lastSeen).toLocaleTimeString()}</span>`;
     renderMessages();
     chat.unread = 0;
-    saveData();
+    saveUserData();
     renderChatList();
     document.getElementById('mainScreen').classList.remove('active');
     document.getElementById('chatScreen').classList.add('active');
@@ -787,72 +876,32 @@
     showInstallQR();
   }
 
-  // ---------------------------- АВТОРИЗАЦИЯ ----------------------------
-  function register(username, password, confirm) {
-    if (password !== confirm) {
-      alert('Пароли не совпадают');
-      return false;
-    }
-    if (username.length < 3) {
-      alert('Логин должен быть не менее 3 символов');
-      return false;
-    }
-    const stored = localStorage.getItem('p2ptg_auth');
-    if (stored) {
-      const data = JSON.parse(stored);
-      if (data.username === username) {
-        alert('Пользователь с таким логином уже зарегистрирован на этом устройстве');
-        return false;
-      }
-    }
-    const salt = CryptoJS.lib.WordArray.random(16).toString();
-    const encryptionKey = deriveKeyFromPassword(password, salt);
-    const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36);
-    currentUser = { username, peerId, encryptionKey, salt };
-    localStorage.setItem('p2ptg_auth', JSON.stringify({ username, passwordHash: CryptoJS.SHA256(password).toString(), salt, peerId, encryptionKey }));
-    saveData();
-    return true;
-  }
-
-  function login(username, password) {
-    const stored = localStorage.getItem('p2ptg_auth');
-    if (!stored) {
-      alert('Пользователь не зарегистрирован');
-      return false;
-    }
-    const data = JSON.parse(stored);
-    const hash = CryptoJS.SHA256(password).toString();
-    if (data.username === username && data.passwordHash === hash) {
-      currentUser = { username: data.username, peerId: data.peerId, encryptionKey: data.encryptionKey };
-      const saved = loadData();
-      if (saved) {
-        chats = saved.chats.map(c => ({ ...c, peer: null, online: false, lastSeen: 0, unread: 0 }));
-        messages = saved.messages;
-      }
-      return true;
-    } else {
-      alert('Неверный логин или пароль');
-      return false;
-    }
-  }
-
+  // ---------------------------- ЗАПУСК ПРИЛОЖЕНИЯ ПОСЛЕ АВТОРИЗАЦИИ ----------------------------
   async function startAppAfterAuth() {
-    await initPeer();
-    for (let chat of chats) {
-      connectToPeer(chat);
+    try {
+      await initPeer();
+      for (let chat of chats) {
+        connectToPeer(chat);
+      }
+      renderChatList();
+      document.getElementById('loginScreen').classList.remove('active');
+      document.getElementById('registerScreen').classList.remove('active');
+      document.getElementById('mainScreen').classList.add('active');
+      document.getElementById('networkInfo').innerText = `Ваш ID: ${currentUser.peerId.slice(0,12)}...`;
+    } catch(e) {
+      alert('Ошибка подключения к сети: ' + e.message);
     }
-    renderChatList();
-    document.getElementById('loginScreen').classList.remove('active');
-    document.getElementById('registerScreen').classList.remove('active');
-    document.getElementById('mainScreen').classList.add('active');
-    document.getElementById('networkInfo').innerText = `Ваш ID: ${currentUser.peerId.slice(0,12)}...`;
   }
 
   // ---------------------------- ОБРАБОТЧИКИ UI ----------------------------
   document.getElementById('doLoginBtn').onclick = async () => {
     const user = document.getElementById('loginUsername').value.trim();
     const pass = document.getElementById('loginPassword').value;
-    if (user && pass && login(user, pass)) {
+    if (!user || !pass) {
+      alert('Введите логин и пароль');
+      return;
+    }
+    if (loginUser(user, pass)) {
       await startAppAfterAuth();
     }
   };
@@ -860,7 +909,11 @@
     const user = document.getElementById('regUsername').value.trim();
     const pass = document.getElementById('regPassword').value;
     const confirm = document.getElementById('regPasswordConfirm').value;
-    if (user && pass && register(user, pass, confirm)) {
+    if (!user || !pass || !confirm) {
+      alert('Заполните все поля');
+      return;
+    }
+    if (registerUser(user, pass, confirm)) {
       await startAppAfterAuth();
     }
   };
@@ -927,15 +980,9 @@
     }
   })();
 
-  // Автозаполнение логина из хранилища
+  // Автозаполнение логина из последнего успешного входа (не сохраняем пароль)
   (function() {
-    const auth = localStorage.getItem('p2ptg_auth');
-    if (auth) {
-      try {
-        const data = JSON.parse(auth);
-        document.getElementById('loginUsername').value = data.username;
-      } catch(e) {}
-    }
+    // Не делаем автозаполнение, чтобы не путать пользователя
   })();
 </script>
 </body>
