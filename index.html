@@ -345,14 +345,25 @@
         renderAll();
     }
 
+    // === ГЛАВНОЕ ИСПРАВЛЕНИЕ: обработчик изменения процента через делегирование ===
+    function setupYearInterestListener() {
+        // Удаляем старый обработчик, если есть, и вешаем новый на yearsPanel
+        yearsPanel.removeEventListener('change', yearInterestHandler);
+        yearsPanel.addEventListener('change', yearInterestHandler);
+    }
+
     function yearInterestHandler(e) {
-        const input = e.target;
-        const year = parseInt(input.dataset.year);
-        let val = parseFloat(input.value);
-        if (isNaN(val)) val = defaultInterest;
-        customYearInterest[year] = val;
-        saveToLocalStorage();
-        renderAll();  // Перерисовываем всё с новыми процентами
+        const target = e.target;
+        if (target.classList && target.classList.contains('year-interest')) {
+            const year = parseInt(target.dataset.year);
+            let val = parseFloat(target.value);
+            if (isNaN(val)) val = defaultInterest;
+            // Сохраняем новый процент для этого года
+            customYearInterest[year] = val;
+            saveToLocalStorage();
+            // Принудительно перерисовываем всё, чтобы прогноз обновился
+            renderAll();
+        }
     }
 
     function deleteHandler(e) {
@@ -445,11 +456,7 @@
         else if (activeTab === 'log') { yearsPanel.style.display = 'none'; monthsPanel.style.display = 'none'; logPanel.style.display = 'block'; graphPanel.style.display = 'none'; }
         else if (activeTab === 'graph') { yearsPanel.style.display = 'none'; monthsPanel.style.display = 'none'; logPanel.style.display = 'none'; graphPanel.style.display = 'block'; updateChart(); }
 
-        // Привязываем обработчики
-        document.querySelectorAll('.year-interest').forEach(inp => {
-            inp.removeEventListener('change', yearInterestHandler);
-            inp.addEventListener('change', yearInterestHandler);
-        });
+        // Обработчики для удаления транзакций и редактирования факта
         document.querySelectorAll('.delete-txn').forEach(btn => {
             btn.removeEventListener('click', deleteHandler);
             btn.addEventListener('click', deleteHandler);
@@ -458,6 +465,8 @@
             span.removeEventListener('click', factClickHandler);
             span.addEventListener('click', factClickHandler);
         });
+        // Настройка делегирования для процентов (достаточно один раз, но для надёжности вызываем)
+        setupYearInterestListener();
         saveToLocalStorage();
     }
 
