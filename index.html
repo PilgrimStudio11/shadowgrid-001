@@ -48,18 +48,10 @@
     .tab.active { color: #007aff; border-bottom: 2px solid #007aff; }
     .button-row { display: flex; gap: 8px; margin-top: 8px; }
     .button-row button { flex: 1; }
-    .platform-specific { margin-top: 8px; }
   </style>
   <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-  <!-- WebTorrent подгружается только на Android, на iPhone он не нужен -->
-  <script>
-    window.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    if (!window.isIOS) {
-      document.write('<script src="https://cdn.jsdelivr.net/npm/webtorrent@2.2.2/webtorrent.min.js"><\/script>');
-    }
-  </script>
 </head>
 <body>
 <div id="app">
@@ -70,8 +62,8 @@
       <input type="text" id="loginUsername" placeholder="Ваш ник">
       <input type="password" id="loginPassword" placeholder="Пароль">
       <button id="loginBtn">Войти / Создать</button>
-      <div style="font-size:12px; color:#8e8e93; text-align:center;">Пароль остаётся на устройстве<br>Все данные шифруются локально</div>
-      <div id="installMethods" class="platform-specific"></div>
+      <div style="font-size:12px; color:#8e8e93; text-align:center;">Пароль остаётся на устройстве</div>
+      <button id="shareFileBtn" class="share-btn">📲 Поделиться приложением (AirDrop)</button>
     </div>
   </div>
 
@@ -89,10 +81,11 @@
     <div id="chatsList" class="contact-list"></div>
     <div id="contactsList" class="contact-list hidden"></div>
     <div class="add-contact" id="addContactPanel">
-      <input type="text" id="newContactOffer" placeholder="Вставить оффер для P2P соединения">
-      <button id="addContactBtn">➕ Добавить контакт по офферу</button>
+      <input type="text" id="searchNickInput" placeholder="Поиск по нику (Telegram-style)">
+      <button id="searchContactBtn">🔍 Найти</button>
       <div class="button-row">
-        <button id="generateOfferBtn" class="share-btn">📡 Мой QR-оффер для контакта</button>
+        <button id="generateOfferBtn" class="share-btn">📡 Мой QR-оффер</button>
+        <button id="addManualBtn" class="share-btn">➕ Добавить вручную</button>
       </div>
     </div>
   </div>
@@ -127,12 +120,15 @@
 <script>
   // ---------------------------- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----------------------------
   let currentUser = null;
-  let contacts = [];
+  let contacts = [];        // { peerId, username, encryptionKey, peerInstance, online }
   let activeContactId = null;
   let messages = {};
   let currentCall = null;
   let localStream = null;
-  let webTorrentClient = null;
+  
+  // Распределённая таблица логинов (peerId → username), которую каждый узел хранит и синхронизирует
+  let loginRegistry = {};   // username -> peerId
+  let pendingSearchCallbacks = {}; // для ответов на поиск
 
   // ---------------------------- КРИПТОГРАФИЯ ----------------------------
   function deriveKeyFromPassword(password, salt) {
@@ -161,7 +157,8 @@
       peerId: currentUser.peerId,
       encryptionKey: currentUser.encryptionKey,
       contacts: contacts.map(c => ({ peerId: c.peerId, username: c.username, encryptionKey: c.encryptionKey })),
-      messages: messages
+      messages: messages,
+      loginRegistry: loginRegistry
     };
     localStorage.setItem('p2pmesh_user', JSON.stringify(data));
   }
@@ -171,7 +168,7 @@
     try { return JSON.parse(raw); } catch(e) { return null; }
   }
 
-  // ---------------------------- P2P СОЕДИНЕНИЕ (simple-peer) ----------------------------
+  // ---------------------------- P2P СОЕДИНЕНИЕ ----------------------------
   function createPeer(initiator, targetContact, offerSignal = null) {
     const peer = new SimplePeer({
       initiator: initiator,
@@ -181,22 +178,24 @@
     peer.on('signal', data => {
       if (initiator) {
         const offerJson = JSON.stringify(data);
-        showQR(offerJson, "Ваш QR-оффер для контакта (отсканируйте другим устройством)");
-        localStorage.setItem('pending_offer', offerJson);
+        showQR(offerJson, "Ваш QR-оффер для контакта");
       } else {
         const answerJson = JSON.stringify(data);
-        showQR(answerJson, "Ответ для контакта (покажите инициатору)");
+        showQR(answerJson, "Ответ для контакта");
       }
     });
     peer.on('connect', () => {
       targetContact.peerInstance = peer;
       targetContact.online = true;
+      // Отправляем handshake
       peer.send(JSON.stringify({
         type: 'handshake',
         username: currentUser.username,
         encryptionKey: currentUser.encryptionKey
       }));
       renderContactList();
+      // Синхронизируем локальную таблицу логинов с новым контактом
+      syncRegistryToPeer(peer);
     });
     peer.on('data', data => handlePeerData(peer, targetContact, data));
     peer.on('close', () => {
@@ -214,9 +213,15 @@
       if (packet.type === 'handshake') {
         contact.encryptionKey = packet.encryptionKey;
         contact.username = packet.username;
+        // Добавляем в реестр
+        if (!loginRegistry[packet.username] || loginRegistry[packet.username] === contact.peerId) {
+          loginRegistry[packet.username] = contact.peerId;
+        }
         saveUserData();
         renderContactList();
         peer.send(JSON.stringify({ type: 'handshake_ack', encryptionKey: currentUser.encryptionKey }));
+        // Отправляем текущий реестр
+        syncRegistryToPeer(peer);
       } else if (packet.type === 'handshake_ack') {
         contact.encryptionKey = packet.encryptionKey;
         saveUserData();
@@ -229,8 +234,65 @@
         showNotification(contact.username, decrypted);
       } else if (packet.type === 'call_offer') {
         handleIncomingCall(peer, packet);
+      } else if (packet.type === 'registry_sync') {
+        // Получаем часть реестра от другого узла
+        for (let [uname, pId] of Object.entries(packet.registry)) {
+          if (!loginRegistry[uname] || loginRegistry[uname] === pId) {
+            loginRegistry[uname] = pId;
+          }
+        }
+        saveUserData();
+      } else if (packet.type === 'search_request') {
+        // Запрос на поиск логина
+        const { nick, requestId } = packet;
+        let foundPeerId = loginRegistry[nick];
+        if (foundPeerId) {
+          peer.send(JSON.stringify({
+            type: 'search_response',
+            requestId: requestId,
+            peerId: foundPeerId,
+            username: nick
+          }));
+        }
+      } else if (packet.type === 'search_response') {
+        if (pendingSearchCallbacks[packet.requestId]) {
+          pendingSearchCallbacks[packet.requestId](packet);
+          delete pendingSearchCallbacks[packet.requestId];
+        }
+      } else if (packet.type === 'register_check') {
+        // Проверка уникальности логина при регистрации
+        const { username, requestId } = packet;
+        let taken = !!loginRegistry[username];
+        peer.send(JSON.stringify({
+          type: 'register_response',
+          requestId: requestId,
+          available: !taken
+        }));
+      } else if (packet.type === 'register_response') {
+        if (pendingSearchCallbacks[packet.requestId]) {
+          pendingSearchCallbacks[packet.requestId](packet);
+          delete pendingSearchCallbacks[packet.requestId];
+        }
       }
     } catch(e) { console.error(e); }
+  }
+
+  function syncRegistryToPeer(peer) {
+    // Отправляем не весь реестр, а только часть, чтобы не перегружать
+    let subset = {};
+    let count = 0;
+    for (let [uname, pId] of Object.entries(loginRegistry)) {
+      if (count++ > 50) break;
+      subset[uname] = pId;
+    }
+    peer.send(JSON.stringify({ type: 'registry_sync', registry: subset }));
+  }
+
+  // ---------------------------- УПРАВЛЕНИЕ КОНТАКТАМИ ----------------------------
+  function connectToPeer(contact) {
+    if (contact.peerInstance) return;
+    const peer = createPeer(true, contact);
+    contact.peerInstance = peer;
   }
 
   function generateOfferForNewContact() {
@@ -238,9 +300,8 @@
     tempPeer.on('signal', data => {
       const offerJson = JSON.stringify(data);
       showQR(offerJson, "QR-оффер для нового контакта");
-      localStorage.setItem('pending_offer', offerJson);
       setTimeout(() => {
-        const answer = prompt("После того как другой пользователь отсканировал и получил ответ, вставьте ответ сюда:");
+        const answer = prompt("После сканирования вставьте ответ от другого устройства:");
         if (answer) {
           try {
             const answerSignal = JSON.parse(answer);
@@ -263,117 +324,122 @@
     });
   }
 
-  function addContactByOffer(offerJson) {
-    try {
-      const offerSignal = JSON.parse(offerJson);
-      const newPeerId = 'peer_' + Date.now() + '_' + Math.random();
-      const newContact = {
-        peerId: newPeerId,
-        username: 'Соединяемся...',
-        encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
-        peerInstance: null,
-        online: false
-      };
-      const peer = createPeer(false, newContact, offerSignal);
-      newContact.peerInstance = peer;
-      contacts.push(newContact);
-      saveUserData();
-      renderContactList();
-    } catch(e) { alert('Неверный оффер'); }
-  }
-
-  // ---------------------------- РАСПРОСТРАНЕНИЕ ПРИЛОЖЕНИЯ (платформозависимо) ----------------------------
-  function shareApp() {
-    if (window.isIOS) {
-      // iOS: экспорт файла через AirDrop
-      const htmlContent = document.documentElement.outerHTML;
-      const blob = new Blob([htmlContent], {type: 'text/html'});
-      const file = new File([blob], 'P2PChat.html', {type: 'text/html'});
-      // Используем Web Share API (если поддерживается) или создаём ссылку для скачивания
-      if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
-        navigator.share({
-          title: 'P2P Mesh Chat',
-          text: 'Установите приложение P2P Mesh',
-          files: [file]
-        }).catch(err => console.log('Поделиться не удалось', err));
-      } else {
-        // Альтернатива: создать временную ссылку и предложить сохранить файл
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'P2PChat.html';
-        a.click();
-        URL.revokeObjectURL(url);
-        alert('Файл сохранён. Передайте его через AirDrop или другим способом.');
-      }
-    } else {
-      // Android/Desktop: используем WebTorrent
-      if (typeof WebTorrent === 'undefined') {
-        alert('WebTorrent не загружен. Проверьте интернет.');
-        return;
-      }
-      if (!webTorrentClient) webTorrentClient = new WebTorrent();
-      const htmlContent = document.documentElement.outerHTML;
-      const blob = new Blob([htmlContent], {type: 'text/html'});
-      const file = new File([blob], 'index.html', {type: 'text/html'});
-      webTorrentClient.seed(file, { announce: ['wss://tracker.webtorrent.io', 'wss://tracker.openwebtorrent.com'] }, torrent => {
-        const magnetUri = torrent.magnetURI;
-        showQR(magnetUri, "Отсканируйте QR, чтобы установить приложение (Android/Desktop)");
-      });
-    }
-  }
-
-  function showInstallInstructions() {
-    const container = document.getElementById('installMethods');
-    if (window.isIOS) {
-      container.innerHTML = `
-        <div style="background:#2c2c2e; padding:12px; border-radius:12px; margin-top:8px;">
-          <div style="font-weight:bold; margin-bottom:8px;">📱 Установка на iPhone:</div>
-          <div>1. Попросите друга отправить вам файл P2PChat.html через AirDrop</div>
-          <div>2. Откройте файл в Safari</div>
-          <div>3. Нажмите «Поделиться» → «На экран «Домой»»</div>
-          <button id="requestFromFriendBtn" class="share-btn" style="margin-top:8px;">📲 Попросить у друга (AirDrop)</button>
-        </div>
-      `;
-      document.getElementById('requestFromFriendBtn')?.addEventListener('click', () => {
-        alert('Попросите друга открыть приложение и нажать "Поделиться приложением", затем передать вам файл через AirDrop.');
-      });
-    } else {
-      container.innerHTML = `
-        <div style="background:#2c2c2e; padding:12px; border-radius:12px; margin-top:8px;">
-          <div style="font-weight:bold; margin-bottom:8px;">🤖 Установка на Android:</div>
-          <div>1. Попросите друга нажать «Поделиться приложением» и отсканировать QR</div>
-          <div>2. Или вручную введите magnet-ссылку</div>
-          <input type="text" id="magnetInput" placeholder="Вставьте magnet-ссылку" style="margin-top:8px;">
-          <button id="installFromMagnetBtn" class="share-btn" style="margin-top:4px;">Установить из magnet-ссылки</button>
-        </div>
-      `;
-      document.getElementById('installFromMagnetBtn')?.addEventListener('click', () => {
-        const magnet = document.getElementById('magnetInput').value;
-        if (magnet) installFromMagnet(magnet);
-      });
-    }
-  }
-
-  async function installFromMagnet(magnet) {
-    if (typeof WebTorrent === 'undefined') {
-      alert('WebTorrent не загружен');
+  function addContactManually() {
+    const peerId = prompt("Введите PeerId контакта:");
+    if (!peerId) return;
+    if (contacts.find(c => c.peerId === peerId)) {
+      alert('Контакт уже есть');
       return;
     }
-    if (!webTorrentClient) webTorrentClient = new WebTorrent();
-    webTorrentClient.add(magnet, torrent => {
-      torrent.files[0].getBuffer((err, buffer) => {
-        if (err) { alert('Ошибка загрузки'); return; }
-        const html = new TextDecoder().decode(buffer);
-        localStorage.setItem('p2pmesh_build', html);
-        if (confirm('Новая версия получена. Обновить приложение?')) {
-          document.open();
-          document.write(html);
-          document.close();
-          location.reload();
+    const newContact = {
+      peerId: peerId,
+      username: peerId.slice(0, 12),
+      encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
+      peerInstance: null,
+      online: false
+    };
+    contacts.push(newContact);
+    connectToPeer(newContact);
+    saveUserData();
+    renderContactList();
+  }
+
+  // Поиск по нику через сеть (gossip)
+  function searchContactByNick(nick) {
+    // Сначала проверим локальный реестр
+    if (loginRegistry[nick]) {
+      let peerId = loginRegistry[nick];
+      if (contacts.find(c => c.peerId === peerId)) {
+        openChat(contacts.find(c => c.peerId === peerId));
+        return;
+      } else {
+        // Добавляем контакт
+        let newContact = {
+          peerId: peerId,
+          username: nick,
+          encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
+          peerInstance: null,
+          online: false
+        };
+        contacts.push(newContact);
+        connectToPeer(newContact);
+        saveUserData();
+        renderContactList();
+        alert(`Контакт ${nick} добавлен`);
+        return;
+      }
+    }
+    // Иначе отправляем запрос всем онлайн-контактам
+    let requestId = Date.now() + '_' + Math.random();
+    pendingSearchCallbacks[requestId] = (response) => {
+      if (response.peerId) {
+        let newContact = {
+          peerId: response.peerId,
+          username: response.username,
+          encryptionKey: CryptoJS.lib.WordArray.random(32).toString(),
+          peerInstance: null,
+          online: false
+        };
+        contacts.push(newContact);
+        connectToPeer(newContact);
+        saveUserData();
+        renderContactList();
+        alert(`Контакт ${response.username} добавлен`);
+      } else {
+        alert('Пользователь не найден');
+      }
+    };
+    for (let contact of contacts) {
+      if (contact.online && contact.peerInstance) {
+        contact.peerInstance.send(JSON.stringify({
+          type: 'search_request',
+          nick: nick,
+          requestId: requestId
+        }));
+      }
+    }
+    // Таймаут
+    setTimeout(() => {
+      if (pendingSearchCallbacks[requestId]) {
+        delete pendingSearchCallbacks[requestId];
+        alert('Поиск не дал результатов');
+      }
+    }, 10000);
+  }
+
+  // Проверка уникальности логина при регистрации
+  function checkLoginUnique(username, callback) {
+    // Сначала локально
+    if (loginRegistry[username] && loginRegistry[username] !== currentUser?.peerId) {
+      callback(false);
+      return;
+    }
+    let requestId = Date.now() + '_' + Math.random();
+    pendingSearchCallbacks[requestId] = (response) => {
+      callback(response.available);
+    };
+    let sent = false;
+    for (let contact of contacts) {
+      if (contact.online && contact.peerInstance) {
+        contact.peerInstance.send(JSON.stringify({
+          type: 'register_check',
+          username: username,
+          requestId: requestId
+        }));
+        sent = true;
+      }
+    }
+    if (!sent) {
+      // Нет онлайн-контактов, считаем уникальным
+      callback(true);
+    } else {
+      setTimeout(() => {
+        if (pendingSearchCallbacks[requestId]) {
+          delete pendingSearchCallbacks[requestId];
+          callback(true); // таймаут – считаем свободным
         }
-      });
-    });
+      }, 5000);
+    }
   }
 
   // ---------------------------- ОТПРАВКА СООБЩЕНИЙ ----------------------------
@@ -471,7 +537,7 @@
       div.onclick = () => openChat(contact);
       container.appendChild(div);
     }
-    if (contacts.length === 0) container.innerHTML = '<div style="text-align:center; padding:20px;">Нет контактов. Используйте "Мой QR-оффер" или "Добавить по офферу".</div>';
+    if (contacts.length === 0) container.innerHTML = '<div style="text-align:center; padding:20px;">Нет контактов. Используйте поиск или QR-оффер.</div>';
     
     const chatsContainer = document.getElementById('chatsList');
     chatsContainer.innerHTML = '';
@@ -529,6 +595,28 @@
 
   function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
 
+  // ---------------------------- РАСПРОСТРАНЕНИЕ ПРИЛОЖЕНИЯ (AirDrop) ----------------------------
+  function shareAppViaAirDrop() {
+    const htmlContent = document.documentElement.outerHTML;
+    const blob = new Blob([htmlContent], {type: 'text/html'});
+    const file = new File([blob], 'P2PChat.html', {type: 'text/html'});
+    if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+      navigator.share({
+        title: 'P2P Mesh Chat',
+        text: 'Установите приложение',
+        files: [file]
+      }).catch(err => alert('Ошибка: ' + err));
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'P2PChat.html';
+      a.click();
+      URL.revokeObjectURL(url);
+      alert('Файл сохранён. Передайте его через AirDrop вручную.');
+    }
+  }
+
   // ---------------------------- РЕГИСТРАЦИЯ / ЛОГИН ----------------------------
   function registerOrLogin(username, password) {
     const stored = localStorage.getItem('p2pmesh_auth');
@@ -541,19 +629,36 @@
         if (saved) {
           contacts = saved.contacts.map(c => ({ ...c, peerInstance: null, online: false }));
           messages = saved.messages;
+          loginRegistry = saved.loginRegistry || {};
+        }
+        // Восстанавливаем соединения со всеми контактами
+        for (let contact of contacts) {
+          if (!contact.peerInstance) {
+            connectToPeer(contact);
+          }
         }
         renderContactList();
         showMainScreen();
         return;
       } else { alert('Неверный пароль'); return; }
     } else {
-      const salt = CryptoJS.lib.WordArray.random(16).toString();
-      const encryptionKey = deriveKeyFromPassword(password, salt);
-      const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36);
-      currentUser = { username, peerId, encryptionKey, salt };
-      localStorage.setItem('p2pmesh_auth', JSON.stringify({ username, passwordHash: hash, salt, peerId, encryptionKey }));
-      saveUserData();
-      showMainScreen();
+      // Регистрация нового пользователя – проверка уникальности
+      checkLoginUnique(username, (isUnique) => {
+        if (!isUnique) {
+          alert('Этот логин уже занят в сети. Выберите другой.');
+          return;
+        }
+        const salt = CryptoJS.lib.WordArray.random(16).toString();
+        const encryptionKey = deriveKeyFromPassword(password, salt);
+        const peerId = 'user_' + Date.now() + '_' + Math.random().toString(36);
+        currentUser = { username, peerId, encryptionKey, salt };
+        localStorage.setItem('p2pmesh_auth', JSON.stringify({ username, passwordHash: hash, salt, peerId, encryptionKey }));
+        // Добавляем себя в реестр
+        loginRegistry[username] = peerId;
+        saveUserData();
+        // Устанавливаем соединения с существующими контактами (пока пусто)
+        showMainScreen();
+      });
     }
   }
 
@@ -589,10 +694,10 @@
     else alert('Введите логин и пароль');
   };
   document.getElementById('generateOfferBtn').onclick = () => generateOfferForNewContact();
-  document.getElementById('addContactBtn').onclick = () => {
-    const offer = document.getElementById('newContactOffer').value.trim();
-    if (offer) addContactByOffer(offer);
-    else alert('Вставьте оффер');
+  document.getElementById('addManualBtn').onclick = () => addContactManually();
+  document.getElementById('searchContactBtn').onclick = () => {
+    const nick = document.getElementById('searchNickInput').value.trim();
+    if (nick) searchContactByNick(nick);
   };
   document.getElementById('sendMsgBtn').onclick = () => {
     const text = document.getElementById('messageInput').value;
@@ -609,21 +714,44 @@
   document.getElementById('audioCallBtn').onclick = () => startCall(false);
   document.getElementById('videoCallBtn').onclick = () => startCall(true);
   document.getElementById('hangupBtn').onclick = () => endCall();
-  document.getElementById('shareAppBtn').onclick = () => shareApp();
+  document.getElementById('shareAppBtn').onclick = () => shareAppViaAirDrop();
+  document.getElementById('shareFileBtn').onclick = () => shareAppViaAirDrop();
 
-  // Показать инструкции по установке на экране авторизации
-  showInstallInstructions();
-
-  // Service Worker (для PWA)
-  if ('serviceWorker' in navigator) {
-    const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));`;
-    const blob = new Blob([swCode], {type: 'application/javascript'});
-    const swUrl = URL.createObjectURL(blob);
-    navigator.serviceWorker.register(swUrl).then(reg => {
-      console.log('SW registered');
-      if (Notification.permission !== 'granted') Notification.requestPermission();
-    });
-  }
+  // PWA: создаём манифест и service worker
+  (function setupPWA() {
+    const manifest = {
+      name: "P2P Mesh",
+      short_name: "P2PChat",
+      start_url: ".",
+      display: "standalone",
+      theme_color: "#1f1f1f",
+      background_color: "#0a0a0a",
+      icons: [{
+        src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAPeSURBVHgB7ZzNcdowFIZfCaGDhA7oIKGDhA5C6CB0A+kAdYN0A+kA6QbpBtINhA6gA5MO0kH4mUeW5Z8kS7ZlO2cknzPjGQhYr9KjLy9aCQAAAAAAAAAAAAAAAAAAAAD8RzRNc5um+T/TNP9YlmW+LMtNlmX3RVHcF0VxV5blT+P6iPLPNE2fkyT5KGV0URTFYvTw9/d3SVEUvyzL+iHLsu+i7HdVVe3lWvY4d/BnGIbhMs/zs6qqbhjHbdM0n/W/Dw8Pz1EU1WmavhqnqWHY+55RVVV/VVV1T1GUc/ngpZ/3jDzPz9M0/SzKfyrL8nSjfz8/P/cxDtHr+I+//vPz8/MUEfKa8v39/VZEyEd9Pk3TY8dxPq3rXpPko1y30+uGXk+c5/u0TdP0cK1c9zzPnef5LUk+r8eGYSjv9/svr32SJN9H4nmef4r6JkmSy98uyzIPw/BM1C0S5hXlj8dxfBVF0Zv+rYwliqL3six/ivkfhT/V+2maHmOMn8U8jDGGWFtrHMc/UjpdlnVd1z+MMfY8r06S5Bti/LUsyz9pmv7Q9zBN00+MsXfLso7Gv6f2o/5lWfZBCLkQ/zyUZflByofH1DHGvpZl+cEYf0vT9Lv+zfO8z7LsyHEcUc/zPDHG3pRl+UuUIeX/lE7T9FNZlr3wj1FvJv4t5fu+3xdFEYiySZJkEIXUOFr/rJRRlL/b7XbXvu/3iHWWZe+SJPki9tV1/csY+zHOtSRLpmnaG2MOwzD8HdFkWfZtNpsttNZpmh7rus7Fv/P5/BjHMRbjSLp5TgiO4zwURfFV+r/tdnsymUxCKYvj+EiU/aD/9zxvI8W6LMte+75P3T+H1pokiR8EwaUoh+M4M/nfdru9mM1mG+W/+mFZFj2XZZm8ePeo+4eHh+/aXkV0RFG0mM/nWzwpdbzseZ7N53NpmX2lS0l93/dZlmUJ3p/c+v1+T3Ec54+2eZRlOR+Px9sRIZ7nLcbjMVWxHY1GZvJlysvLyy3G+L3nefcYY2mPMnme0+vrK10CL6/fm2VZdzabbe5S+L22Wq2OMcaGEAIVe3gUY2w1n88vMpjj8Tg2n88pnDHeHw6HS+1mSJkHRhj9+PAaDAakMMaL+Xx+kYzVasVwA8Dj4+N9nudBEAQ3GONb2vD09PTM5+5Y+nT9d7vdiW3bi5JqO8Tv7+9H0zR/Msb6KIr2SgjlExFBKdNxHMJxHHIch5RlSVEUBeV/QhRFURRFURRFURRFUfzP/AUS8NwJ7bD9TgAAAABJRU5ErkJggg==",
+        sizes: "192x192",
+        type: "image/png"
+      }]
+    };
+    const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+    const manifestURL = URL.createObjectURL(manifestBlob);
+    const link = document.querySelector('link[rel="manifest"]');
+    if (link) link.href = manifestURL;
+    else {
+      const newLink = document.createElement('link');
+      newLink.rel = 'manifest';
+      newLink.href = manifestURL;
+      document.head.appendChild(newLink);
+    }
+    if ('serviceWorker' in navigator) {
+      const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));`;
+      const swBlob = new Blob([swCode], {type: 'application/javascript'});
+      const swUrl = URL.createObjectURL(swBlob);
+      navigator.serviceWorker.register(swUrl).then(reg => {
+        console.log('SW registered');
+        if (Notification.permission !== 'granted') Notification.requestPermission();
+      });
+    }
+  })();
 
   // Автозаполнение логина
   (function() {
@@ -633,15 +761,6 @@
         const data = JSON.parse(auth);
         document.getElementById('loginUsername').value = data.username;
       } catch(e) {}
-    }
-    // Проверка обновления через magnet (для Android)
-    const pendingBuild = localStorage.getItem('p2pmesh_build');
-    if (pendingBuild && confirm('Обнаружена новая версия. Обновить?')) {
-      localStorage.removeItem('p2pmesh_build');
-      document.open();
-      document.write(pendingBuild);
-      document.close();
-      location.reload();
     }
   })();
 </script>
