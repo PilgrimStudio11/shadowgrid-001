@@ -3,7 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Накопления — семейный бюджет</title>
+    <meta name="theme-color" content="#0F172A">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Накопления">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230F172A'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='%23F59E0B' font-family='Arial'%3E💰%3C/text%3E%3C/svg%3E">
+    <title>Накопления — прогноз с редактированием</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
@@ -73,24 +79,56 @@
         .progress-fill { background: #F59E0B; width: 0%; height: 100%; transition: width 0.3s; }
         .category-badge { display: inline-flex; align-items: center; gap: 4px; background: #E2E8F0; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; }
         .flex-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-        @media (max-width: 640px) { body { padding: 16px 12px; } }
+        .widget-badge { background: #E2E8F0; padding: 4px 12px; border-radius: 20px; cursor: pointer; }
+        .pin-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(0,0,0,0.9); z-index: 2000;
+            display: flex; align-items: center; justify-content: center; flex-direction: column; gap:20px;
+        }
+        .editable-cell {
+            cursor: pointer;
+            background: rgba(245,158,11,0.1);
+            border-radius: 8px;
+            padding: 4px 8px;
+            display: inline-block;
+            min-width: 100px;
+        }
+        .editable-cell input {
+            width: 100px;
+            padding: 4px;
+            font-size: 0.8rem;
+        }
+        @media (max-width: 640px) { body { padding: 16px 12px; } .editable-cell input { width: 70px; } }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
 
-<div id="appContent">
+<!-- PIN-экран -->
+<div id="pinScreen" class="pin-overlay" style="display: none;">
+    <div class="card" style="text-align: center; max-width:300px;">
+        <h3>🔐 Введите PIN-код</h3>
+        <input type="password" id="pinInput" maxlength="4" inputmode="numeric" pattern="\d*" style="font-size:2rem; text-align:center; width:150px;">
+        <div style="margin-top:16px;"><button id="pinUnlockBtn" class="btn-accent">Разблокировать</button></div>
+        <p id="pinError" style="color: red; font-size:0.8rem;"></p>
+        <button id="pinResetBtn" style="margin-top:12px; background:transparent; color:#ccc;">Сбросить PIN (удалить данные)</button>
+    </div>
+</div>
+
+<div id="appContent" style="display: none;">
 <div style="max-width:1400px; margin:0 auto;">
     <div class="card" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); color: white; border: none;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h1 style="color:white;">💰 Накопления Pro</h1>
-            <div><button id="themeToggleBtn" style="background:rgba(255,255,255,0.2);">🌓 Тема</button></div>
+            <div><button id="themeToggleBtn" style="background:rgba(255,255,255,0.2);">🌓 Тема</button>
+            <button id="lockAppBtn" style="background:rgba(255,255,255,0.2);">🔒 Блокировка</button></div>
         </div>
         <div class="grid-buttons" style="margin-top:12px;">
-            <button id="openAddBtn" class="btn-accent">+ Добавить доход</button>
+            <button id="openAddBtn" class="btn-accent">+ Доход</button>
             <button id="openExpenseBtn">- Расход</button>
-            <button id="undoBtn">↩️ Отменить</button>
-            <button id="redoBtn">↪️ Повторить</button>
+            <button id="undoBtn">↩️ Undo</button><button id="redoBtn">↪️ Redo</button>
+            <button id="scanReceiptBtn">📷 Скан чека</button>
             <button id="exportJsonBtn">💾 Экспорт JSON</button>
             <button id="importJsonBtn">📂 Импорт JSON</button>
             <input type="file" id="importFileInput" accept=".json" style="display: none;">
@@ -99,19 +137,16 @@
 
     <!-- Дашборд -->
     <div class="card" id="dashboard">
-        <h3>📊 Текущий баланс</h3>
-        <div id="balanceDisplay" style="font-size: 2rem; font-weight: bold;">0 ₽</div>
-        <div class="flex-row" style="margin-top: 12px;">
-            <div>🎯 Цель: <span id="goalShort">не задана</span></div>
-            <div>📅 Прогресс: <span id="goalProgressShort">0%</span></div>
-        </div>
+        <h3>📊 Дашборд</h3>
+        <div id="widgetSelector" class="flex-row" style="margin-bottom:12px;"></div>
+        <div id="widgetsContainer"></div>
     </div>
 
     <!-- Вкладки -->
     <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;">
         <button id="tabYears" class="btn btn-accent">📆 Прогноз 40 лет</button>
         <button id="tabMonths" class="btn btn-outline">📅 Месяцы</button>
-        <button id="tabLog" class="btn btn-outline">📜 Лог операций</button>
+        <button id="tabLog" class="btn btn-outline">📜 Лог</button>
         <button id="tabAnalytics" class="btn btn-outline">📊 Аналитика</button>
         <button id="tabGoal" class="btn btn-outline">🎯 Цель</button>
         <button id="tabBudget" class="btn btn-outline">💰 Бюджеты</button>
@@ -128,6 +163,8 @@
             <select id="logTypeFilter"><option value="">Все типы</option><option value="income">Доходы</option><option value="expense">Расходы</option></select>
             <select id="logCategoryFilter"><option value="">Все категории</option></select>
             <select id="logMemberFilter"><option value="">Все участники</option></select>
+            <input type="date" id="logDateFrom" placeholder="c">
+            <input type="date" id="logDateTo" placeholder="по">
         </div>
         <div id="logTableContainer"></div>
     </div>
@@ -172,56 +209,63 @@
         <h3>PIN-код (4 цифры)</h3>
         <input type="password" id="pinCode" maxlength="4" placeholder="Новый PIN">
         <button id="savePinBtn" class="btn-outline">Сохранить PIN</button>
-        <p style="font-size:0.7rem; margin-top:8px;">При установке PIN данные будут зашифрованы. При следующем запуске потребуется ввод.</p>
+        <p style="font-size:0.7rem; margin-top:8px;">При установке PIN данные будут шифроваться. При следующем запуске потребуется ввод.</p>
+        <hr>
+        <h3>Уведомления</h3>
+        <label><input type="checkbox" id="notifyBudget"> Напоминать о бюджете</label><br>
+        <label><input type="checkbox" id="notifyGoal"> Напоминать о цели</label>
+        <button id="requestNotifyBtn" class="btn-outline" style="margin-top:8px;">Разрешить уведомления</button>
     </div>
 </div>
+<footer style="text-align:center; font-size:0.7rem; margin-top:20px;">Редактируйте ячейки в таблице прогноза — изменения сохранятся и повлияют на расчёты.</footer>
 </div>
 
 <script>
     // ======================== ГЛОБАЛЬНОЕ СОСТОЯНИЕ ========================
     let appData = {
         transactions: [],
-        budgets: {},           // { "Категория": лимит }
+        budgets: {},
         members: ["Я", "Супруг(а)", "Дети"],
         goal: { name: "", target: 0, date: "", initial: 0 },
         settings: {
             darkMode: false,
             defaultInterest: 5,
             interestType: "simple",
-            pinHash: ""
-        }
+            pinHash: "",
+            widgets: ["balance", "goal", "recent"],
+            notifyBudget: false,
+            notifyGoal: false
+        },
+        // Ручные корректировки прогноза по годам (переопределяют расчёт)
+        yearlyOverrides: {}  // { "2026": { startBalance: 100000, added: 50000, withdrawn: 0, interest: 6 } }
     };
 
     let undoStack = [];
     let redoStack = [];
     let charts = {};
+    let currentEditId = null;
+    let authenticated = false;
+    let pinHash = "";
 
-    // DOM элементы
-    const balanceDisplay = document.getElementById('balanceDisplay');
-    const goalShort = document.getElementById('goalShort');
-    const goalProgressShort = document.getElementById('goalProgressShort');
-    const yearsPanel = document.getElementById('yearsPanel');
-    const monthsPanel = document.getElementById('monthsPanel');
-    const logTableContainer = document.getElementById('logTableContainer');
-    const analyticsPanel = document.getElementById('analyticsPanel');
-    const goalPanel = document.getElementById('goalPanel');
-    const budgetPanel = document.getElementById('budgetPanel');
-    const membersPanel = document.getElementById('membersPanel');
-    const settingsPanel = document.getElementById('settingsPanel');
-    const logSearch = document.getElementById('logSearch');
-    const logTypeFilter = document.getElementById('logTypeFilter');
-    const logCategoryFilter = document.getElementById('logCategoryFilter');
-    const logMemberFilter = document.getElementById('logMemberFilter');
+    // DOM
+    const pinScreen = document.getElementById('pinScreen');
+    const appContentDiv = document.getElementById('appContent');
+    const pinInput = document.getElementById('pinInput');
+    const pinUnlockBtn = document.getElementById('pinUnlockBtn');
+    const pinError = document.getElementById('pinError');
+    const pinResetBtn = document.getElementById('pinResetBtn');
     const themeToggle = document.getElementById('themeToggleBtn');
-    const darkModeToggle = document.getElementById('darkModeToggle');
-    const openAddBtn = document.getElementById('openAddBtn');
-    const openExpenseBtn = document.getElementById('openExpenseBtn');
+    const lockBtn = document.getElementById('lockAppBtn');
     const undoBtn = document.getElementById('undoBtn');
     const redoBtn = document.getElementById('redoBtn');
-    const exportJsonBtn = document.getElementById('exportJsonBtn');
-    const importJsonBtn = document.getElementById('importJsonBtn');
-    const importFileInput = document.getElementById('importFileInput');
+    const scanBtn = document.getElementById('scanReceiptBtn');
+    const exportJson = document.getElementById('exportJsonBtn');
+    const importJson = document.getElementById('importJsonBtn');
+    const importFile = document.getElementById('importFileInput');
+    const openAdd = document.getElementById('openAddBtn');
+    const openExpense = document.getElementById('openExpenseBtn');
     const globalPercent = document.getElementById('globalPercent');
+    const darkModeToggle = document.getElementById('darkModeToggle');
     const saveGoalBtn = document.getElementById('saveGoalBtn');
     const goalName = document.getElementById('goalName');
     const goalTarget = document.getElementById('goalTarget');
@@ -234,6 +278,21 @@
     const addMemberBtn = document.getElementById('addMemberBtn');
     const pinCodeInput = document.getElementById('pinCode');
     const savePinBtn = document.getElementById('savePinBtn');
+    const notifyBudgetChk = document.getElementById('notifyBudget');
+    const notifyGoalChk = document.getElementById('notifyGoal');
+    const requestNotifyBtn = document.getElementById('requestNotifyBtn');
+    const logSearch = document.getElementById('logSearch');
+    const logTypeFilter = document.getElementById('logTypeFilter');
+    const logCategoryFilter = document.getElementById('logCategoryFilter');
+    const logMemberFilter = document.getElementById('logMemberFilter');
+    const logDateFrom = document.getElementById('logDateFrom');
+    const logDateTo = document.getElementById('logDateTo');
+    const widgetSelectorDiv = document.getElementById('widgetSelector');
+    const widgetsContainer = document.getElementById('widgetsContainer');
+    const yearsPanel = document.getElementById('yearsPanel');
+    const monthsPanel = document.getElementById('monthsPanel');
+    const logTableContainer = document.getElementById('logTableContainer');
+
     const tabYears = document.getElementById('tabYears');
     const tabMonths = document.getElementById('tabMonths');
     const tabLog = document.getElementById('tabLog');
@@ -242,375 +301,432 @@
     const tabBudget = document.getElementById('tabBudget');
     const tabMembers = document.getElementById('tabMembers');
     const tabSettings = document.getElementById('tabSettings');
-
     let activeTab = 'years';
-    let currentEditId = null;
 
-    // ======================== СОХРАНЕНИЕ И ЗАГРУЗКА ========================
-    function saveToLocalStorage() {
-        localStorage.setItem('savings_app_data', JSON.stringify(appData));
-        // Также сохраняем резервную копию в localStorage на случай сбоя
-        localStorage.setItem('savings_backup', JSON.stringify(appData));
+    // ======================== ШИФРОВАНИЕ ========================
+    async function deriveKey(pin, salt) {
+        const enc = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+        return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial,
+            { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
     }
-
-    function loadFromLocalStorage() {
-        const saved = localStorage.getItem('savings_app_data');
-        if (saved) {
+    async function encryptData(plain, pin, salt) {
+        const key = await deriveKey(pin, salt);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(JSON.stringify(plain));
+        const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+        return { ciphertext: btoa(String.fromCharCode(...new Uint8Array(encrypted))), iv: btoa(String.fromCharCode(...iv)), salt: btoa(String.fromCharCode(...salt)) };
+    }
+    async function decryptData(cipherObj, pin) {
+        const salt = Uint8Array.from(atob(cipherObj.salt), c=>c.charCodeAt(0));
+        const key = await deriveKey(pin, salt);
+        const iv = Uint8Array.from(atob(cipherObj.iv), c=>c.charCodeAt(0));
+        const ciphertext = Uint8Array.from(atob(cipherObj.ciphertext), c=>c.charCodeAt(0));
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+        return JSON.parse(new TextDecoder().decode(decrypted));
+    }
+    async function saveEncrypted() {
+        if (!authenticated) return;
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const encrypted = await encryptData(appData, pinHash, salt);
+        localStorage.setItem('savings_enc', JSON.stringify(encrypted));
+        localStorage.setItem('pin_hash', pinHash);
+    }
+    async function loadEncrypted() {
+        const encRaw = localStorage.getItem('savings_enc');
+        const storedPinHash = localStorage.getItem('pin_hash');
+        if (encRaw && storedPinHash) {
+            pinHash = storedPinHash;
+            const cipher = JSON.parse(encRaw);
             try {
-                const data = JSON.parse(saved);
-                appData = data;
-            } catch(e) { console.warn("Ошибка загрузки"); }
+                appData = await decryptData(cipher, pinHash);
+            } catch(e) { console.warn("Ошибка расшифровки, сброс"); resetToDefault(); }
+        } else {
+            resetToDefault();
         }
-        // Проверяем целостность данных
-        if (!appData.transactions) appData.transactions = [];
-        if (!appData.budgets) appData.budgets = {};
-        if (!appData.members) appData.members = ["Я", "Супруг(а)", "Дети"];
-        if (!appData.goal) appData.goal = { name: "", target: 0, date: "", initial: 0 };
-        if (!appData.settings) appData.settings = { darkMode: false, defaultInterest: 5, interestType: "simple", pinHash: "" };
-        if (appData.settings.darkMode) document.body.classList.add('dark');
+        if (!appData.yearlyOverrides) appData.yearlyOverrides = {};
+        if (!appData.settings.widgets) appData.settings.widgets = ["balance","goal","recent"];
+        applySettings();
+    }
+    function resetToDefault() {
+        appData = {
+            transactions: [],
+            budgets: {},
+            members: ["Я", "Супруг(а)", "Дети"],
+            goal: { name: "", target: 0, date: "", initial: 0 },
+            settings: { darkMode: false, defaultInterest: 5, interestType: "simple", pinHash: "", widgets: ["balance","goal","recent"], notifyBudget: false, notifyGoal: false },
+            yearlyOverrides: {}
+        };
+    }
+    function applySettings() {
+        if (appData.settings.darkMode) document.body.classList.add('dark'); else document.body.classList.remove('dark');
         globalPercent.value = appData.settings.defaultInterest;
         if (appData.settings.interestType === 'compound') document.querySelector('input[value="compound"]').checked = true;
         else document.querySelector('input[value="simple"]').checked = true;
+        notifyBudgetChk.checked = appData.settings.notifyBudget;
+        notifyGoalChk.checked = appData.settings.notifyGoal;
     }
-
+    function saveToLocalStoragePlain() {
+        if (!pinHash || pinHash === "") localStorage.setItem('savings_app_data', JSON.stringify(appData));
+        else saveEncrypted();
+    }
     function pushState() {
         undoStack.push(JSON.parse(JSON.stringify(appData)));
         redoStack = [];
         if (undoStack.length > 50) undoStack.shift();
-        saveToLocalStorage();
+        saveToLocalStoragePlain();
     }
+    function undo() { if (undoStack.length) { const prev = undoStack.pop(); redoStack.push(JSON.parse(JSON.stringify(appData))); appData = prev; saveToLocalStoragePlain(); renderAll(); } }
+    function redo() { if (redoStack.length) { const next = redoStack.pop(); undoStack.push(JSON.parse(JSON.stringify(appData))); appData = next; saveToLocalStoragePlain(); renderAll(); } }
 
-    function undo() {
-        if (undoStack.length === 0) return;
-        const prev = undoStack.pop();
-        redoStack.push(JSON.parse(JSON.stringify(appData)));
-        appData = prev;
-        saveToLocalStorage();
-        renderAll();
-    }
-
-    function redo() {
-        if (redoStack.length === 0) return;
-        const next = redoStack.pop();
-        undoStack.push(JSON.parse(JSON.stringify(appData)));
-        appData = next;
-        saveToLocalStorage();
-        renderAll();
-    }
-
-    // ======================== ФИНАНСОВЫЕ РАСЧЁТЫ ========================
-    function getCurrentBalance() {
-        let bal = 0;
-        appData.transactions.forEach(t => bal += t.amount);
-        return bal;
-    }
-
-    function getBalanceUpToDate(dateStr) {
-        let bal = 0;
-        appData.transactions.forEach(t => { if (t.date <= dateStr) bal += t.amount; });
-        return bal;
-    }
-
+    // ======================== ФИНАНСОВЫЕ ФУНКЦИИ С УЧЁТОМ ПЕРЕОПРЕДЕЛЕНИЙ ========================
+    function getCurrentBalance() { return appData.transactions.reduce((s,t)=>s+t.amount,0); }
+    function getBalanceUpToDate(dateStr) { return appData.transactions.filter(t=>t.date<=dateStr).reduce((s,t)=>s+t.amount,0); }
     function getMonthlyNet(year, month) {
-        let net = 0;
         const start = `${year}-${String(month).padStart(2,'0')}-01`;
         const end = `${year}-${String(month).padStart(2,'0')}-${new Date(year, month, 0).getDate()}`;
-        appData.transactions.forEach(t => { if (t.date >= start && t.date <= end) net += t.amount; });
-        return net;
+        return appData.transactions.filter(t=>t.date>=start && t.date<=end).reduce((s,t)=>s+t.amount,0);
     }
-
+    // Получение начального баланса года с учётом ручных правок
+    function getStartBalanceForYear(year, defaultStart) {
+        if (appData.yearlyOverrides[year] && appData.yearlyOverrides[year].startBalance !== undefined) return appData.yearlyOverrides[year].startBalance;
+        return defaultStart;
+    }
+    // Получение добавлений/снятий с учётом ручных правок
+    function getAddedWithdrawnForYear(year, defaultAdded, defaultWithdrawn) {
+        const ov = appData.yearlyOverrides[year];
+        if (ov) {
+            return {
+                added: ov.added !== undefined ? ov.added : defaultAdded,
+                withdrawn: ov.withdrawn !== undefined ? ov.withdrawn : defaultWithdrawn
+            };
+        }
+        return { added: defaultAdded, withdrawn: defaultWithdrawn };
+    }
+    function getInterestForYear(year, defaultInterest) {
+        if (appData.yearlyOverrides[year] && appData.yearlyOverrides[year].interest !== undefined) return appData.yearlyOverrides[year].interest;
+        return defaultInterest;
+    }
     function getYearlyForecast() {
-        if (appData.transactions.length === 0) return [];
-        const yearsSet = new Set();
-        appData.transactions.forEach(t => yearsSet.add(parseInt(t.date.slice(0,4))));
+        if (!appData.transactions.length && Object.keys(appData.yearlyOverrides).length === 0) return [];
+        const yearsSet = new Set(appData.transactions.map(t=>parseInt(t.date.slice(0,4))));
+        if (Object.keys(appData.yearlyOverrides).length) Object.keys(appData.yearlyOverrides).forEach(y=>yearsSet.add(parseInt(y)));
+        if (yearsSet.size === 0) return [];
         const minYear = Math.min(...yearsSet);
-        const currentYear = new Date().getFullYear();
-        const maxYear = currentYear + 40;
-        const years = [];
-        for (let y = minYear; y <= maxYear; y++) years.push(y);
+        const curYear = new Date().getFullYear();
+        const maxYear = curYear + 40;
+        const years = []; for (let y=minYear; y<=maxYear; y++) years.push(y);
         const result = [];
-        for (let i = 0; i < years.length; i++) {
+        for (let i=0; i<years.length; i++) {
             const year = years[i];
-            const isPast = year <= currentYear;
-            let startBalance = i === 0 ? getBalanceUpToDate(`${year}-01-01`) : (result[i-1].isPast ? result[i-1].actualEnd : result[i-1].forecastEnd);
-            let added = 0, withdrawn = 0;
-            if (isPast) {
-                appData.transactions.forEach(t => {
-                    if (parseInt(t.date.slice(0,4)) === year) {
-                        if (t.amount > 0) added += t.amount;
-                        else withdrawn += Math.abs(t.amount);
-                    }
-                });
-            }
-            const net = added - withdrawn;
-            const interest = appData.settings.defaultInterest;
-            let forecast;
-            if (appData.settings.interestType === "simple") {
-                forecast = startBalance * (1 + interest/100) + net;
+            const isPast = year <= curYear;
+            // Начальный баланс: либо из оверрайда, либо из предыдущего года
+            let startBalance;
+            if (i === 0) {
+                const defaultStart = getBalanceUpToDate(`${year}-01-01`);
+                startBalance = getStartBalanceForYear(year, defaultStart);
             } else {
+                const prev = result[i-1];
+                const prevActualOrForecast = prev.isPast ? prev.actualEnd : prev.forecastEnd;
+                startBalance = getStartBalanceForYear(year, prevActualOrForecast);
+            }
+            // Базовые добавления/снятия из транзакций
+            let baseAdded=0, baseWithdrawn=0;
+            if (isPast) {
+                appData.transactions.forEach(t=>{ if(parseInt(t.date.slice(0,4))===year) { if(t.amount>0) baseAdded+=t.amount; else baseWithdrawn+=Math.abs(t.amount); } });
+            }
+            const { added, withdrawn } = getAddedWithdrawnForYear(year, baseAdded, baseWithdrawn);
+            const net = added - withdrawn;
+            const interest = getInterestForYear(year, appData.settings.defaultInterest);
+            let forecast;
+            if (appData.settings.interestType === "simple") forecast = startBalance*(1+interest/100)+net;
+            else {
                 let bal = startBalance;
-                for (let m = 1; m <= 12; m++) {
-                    bal = bal * (1 + interest/100/12) + getMonthlyNet(year, m);
+                for (let m=1; m<=12; m++) {
+                    // Для будущих годов операции не учитываем, но если есть оверрайд, используем net равномерно?
+                    // Проще: для капитализации используем только оверрайд net за год, распределяем равномерно
+                    const monthlyNet = (isPast || appData.yearlyOverrides[year]) ? net/12 : getMonthlyNet(year,m);
+                    bal = bal*(1+interest/100/12) + monthlyNet;
                 }
                 forecast = bal;
             }
             const actualEnd = isPast ? getBalanceUpToDate(`${year}-12-31`) : null;
-            result.push({ year, startBalance, added, withdrawn, forecastEnd: forecast, actualEnd, isPast });
+            result.push({ year, startBalance, added, withdrawn, net, interest, forecastEnd: forecast, actualEnd, isPast });
         }
         return result;
     }
 
-    // ======================== ОПЕРАЦИИ С ТРАНЗАКЦИЯМИ ========================
+    // ======================== ОПЕРАЦИИ ========================
     function addTransaction(amount, type, date, category, member, desc) {
         if (!date) date = new Date().toISOString().slice(0,10);
         const finalAmount = type === 'income' ? Math.abs(amount) : -Math.abs(amount);
-        const newTxn = {
-            id: Date.now() + Math.random(),
-            date: date,
-            amount: finalAmount,
-            category: category,
-            member: member || "Я",
-            description: desc || ""
-        };
         pushState();
-        appData.transactions.push(newTxn);
+        appData.transactions.push({ id: Date.now()+Math.random(), date, amount: finalAmount, category, member: member||"Я", description: desc||"" });
         appData.transactions.sort((a,b)=>a.date.localeCompare(b.date));
-        saveToLocalStorage();
+        saveToLocalStoragePlain();
+        renderAll();
+        checkBudgetNotifications();
+    }
+    function deleteTransaction(id) { pushState(); appData.transactions = appData.transactions.filter(t=>t.id!==id); saveToLocalStoragePlain(); renderAll(); }
+    function updateTransaction(id, newData) { pushState(); const idx = appData.transactions.findIndex(t=>t.id===id); if(idx!==-1) { appData.transactions[idx] = {...appData.transactions[idx], ...newData}; appData.transactions.sort((a,b)=>a.date.localeCompare(b.date)); saveToLocalStoragePlain(); renderAll(); } }
+
+    // Ручное редактирование ячейки прогноза
+    function updateYearlyOverride(year, field, value) {
+        pushState();
+        if (!appData.yearlyOverrides[year]) appData.yearlyOverrides[year] = {};
+        appData.yearlyOverrides[year][field] = value;
+        // Если значение пустое или NaN, удаляем переопределение
+        if (value === undefined || value === null || (typeof value === 'number' && isNaN(value))) {
+            delete appData.yearlyOverrides[year][field];
+            if (Object.keys(appData.yearlyOverrides[year]).length === 0) delete appData.yearlyOverrides[year];
+        }
+        saveToLocalStoragePlain();
         renderAll();
     }
 
-    function deleteTransaction(id) {
-        pushState();
-        appData.transactions = appData.transactions.filter(t => t.id !== id);
-        saveToLocalStorage();
-        renderAll();
-    }
-
-    function updateTransaction(id, newData) {
-        pushState();
-        const idx = appData.transactions.findIndex(t => t.id === id);
-        if (idx !== -1) {
-            appData.transactions[idx] = { ...appData.transactions[idx], ...newData };
-            appData.transactions.sort((a,b)=>a.date.localeCompare(b.date));
-            saveToLocalStorage();
-            renderAll();
+    // ======================== УВЕДОМЛЕНИЯ ========================
+    function sendNotification(title, body) { if ('Notification' in navigator && Notification.permission === 'granted') new Notification(title, { body, icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Ctext y="50" x="50" fill="%23F59E0B"%3E💰%3C/text%3E%3C/svg%3E' }); }
+    function checkBudgetNotifications() {
+        if (!appData.settings.notifyBudget) return;
+        const now = new Date();
+        const year = now.getFullYear(), month = now.getMonth()+1;
+        const start = `${year}-${String(month).padStart(2,'0')}-01`;
+        const end = `${year}-${String(month).padStart(2,'0')}-${new Date(year, month, 0).getDate()}`;
+        const spent = {};
+        appData.transactions.forEach(t=>{ if(t.date>=start && t.date<=end && t.amount<0) spent[t.category] = (spent[t.category]||0)+Math.abs(t.amount); });
+        for (let cat in appData.budgets) {
+            const limit = appData.budgets[cat];
+            const used = spent[cat]||0;
+            const percent = used/limit*100;
+            if (percent >= 80 && !window[`notified_${cat}_${year}_${month}`]) {
+                sendNotification(`Бюджет ${cat}`, `Потрачено ${percent.toFixed(0)}% лимита`);
+                window[`notified_${cat}_${year}_${month}`] = true;
+            }
         }
     }
+    function checkGoalNotification() {
+        if (!appData.settings.notifyGoal || !appData.goal.target || !appData.goal.date) return;
+        const today = new Date();
+        const goalDate = new Date(appData.goal.date);
+        const diffDays = Math.ceil((goalDate - today) / (1000*60*60*24));
+        if (diffDays === 7 && !window.goalNotified7) { sendNotification("🎯 Цель близко!", `До ${appData.goal.name} осталось 7 дней.`); window.goalNotified7 = true; }
+    }
+    setInterval(()=>{ checkBudgetNotifications(); checkGoalNotification(); }, 3600000);
+    function requestNotifyPermission() { if ('Notification' in navigator) Notification.requestPermission(); }
 
     // ======================== РЕНДЕР ========================
     function renderDashboard() {
-        const balance = getCurrentBalance();
-        balanceDisplay.innerText = balance.toLocaleString() + ' ₽';
-        if (appData.goal.target) {
-            const saved = balance + (appData.goal.initial || 0);
-            const percent = Math.min(100, (saved / appData.goal.target) * 100);
-            goalShort.innerText = appData.goal.name || 'Цель';
-            goalProgressShort.innerText = percent.toFixed(0) + '%';
-        } else {
-            goalShort.innerText = 'не задана';
-            goalProgressShort.innerText = '0%';
+        const widgets = appData.settings.widgets;
+        widgetSelectorDiv.innerHTML = ['balance','goal','recent'].map(w => `<span class="widget-badge" data-widget="${w}">${w}</span>`).join('');
+        let html = '';
+        if (widgets.includes('balance')) html += `<div class="card"><h3>💰 Баланс</h3><div id="balanceValue">${getCurrentBalance().toLocaleString()} ₽</div></div>`;
+        if (widgets.includes('goal') && appData.goal.target) {
+            const saved = getCurrentBalance() + (appData.goal.initial||0);
+            const percent = Math.min(100, saved/appData.goal.target*100);
+            html += `<div class="card"><h3>🎯 ${appData.goal.name}</h3><div class="progress-bar"><div class="progress-fill" style="width:${percent}%;"></div></div><p>${percent.toFixed(0)}%</p></div>`;
         }
+        if (widgets.includes('recent')) {
+            const recent = [...appData.transactions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+            html += `<div class="card"><h3>📋 Последние</h3><ul>${recent.map(t=>`<li>${t.date}: ${t.amount>0?'+':''}${t.amount} ${t.category}</li>`).join('')}</ul></div>`;
+        }
+        widgetsContainer.innerHTML = html;
+        document.querySelectorAll('.widget-badge').forEach(b=>b.onclick=()=>{
+            const w = b.dataset.widget;
+            let newWidgets = appData.settings.widgets.filter(x=>x!==w);
+            if (newWidgets.length === appData.settings.widgets.length) newWidgets.push(w);
+            appData.settings.widgets = newWidgets;
+            pushState(); saveToLocalStoragePlain(); renderDashboard();
+        });
     }
 
     function renderYears() {
         const data = getYearlyForecast();
-        if (!data.length) { yearsPanel.innerHTML = '<p>Нет данных. Добавьте первую операцию.</p>'; return; }
-        let html = `<h3>📈 Прогноз на 40 лет (${appData.settings.interestType === 'simple' ? 'простой %' : 'капитализация'})</h3><div class="scroll-table"><table><thead><tr><th>Год</th><th>Нач. баланс</th><th>Пополн.</th><th>Снято</th><th>Прогноз</th><th>Факт</th></tr></thead><tbody>`;
+        if (!data.length) { yearsPanel.innerHTML = '<p>Нет данных. Добавьте операцию или задайте значения вручную в таблице.</p>'; return; }
+        let html = `<h3>📈 Прогноз на 40 лет (${appData.settings.interestType === 'simple' ? 'простой %' : 'капитализация'})</h3>
+        <p style="font-size:0.8rem;">✏️ Кликните по значению в таблице, чтобы отредактировать (начальный баланс, пополнения, снятия, процент).</p>
+        <div class="scroll-table"><table><thead><tr>
+            <th>Год</th><th>Нач. баланс (₽)</th><th>Пополн. (₽)</th><th>Снято (₽)</th><th>% ставка</th><th>Прогноз (конец года)</th><th>Факт (конец года)</th>
+        </tr></thead><tbody>`;
         data.forEach(row => {
+            const startBalanceVal = row.startBalance;
+            const addedVal = row.added;
+            const withdrawnVal = row.withdrawn;
+            const interestVal = row.interest;
+            const forecastVal = row.forecastEnd;
+            const actualVal = row.actualEnd;
             html += `<tr>
                 <td>${row.year}</td>
-                <td>${row.startBalance.toLocaleString()} ₽</td>
-                <td class="money-positive">${row.added.toLocaleString()} ₽</td>
-                <td class="money-negative">${row.withdrawn.toLocaleString()} ₽</td>
-                <td class="forecast">${row.forecastEnd.toLocaleString()} ₽</td>
-                <td>${row.actualEnd !== null ? row.actualEnd.toLocaleString() + ' ₽' : '—'}</td>
+                <td><span class="editable-cell" data-year="${row.year}" data-field="startBalance">${startBalanceVal.toLocaleString()}</span></td>
+                <td><span class="editable-cell" data-year="${row.year}" data-field="added">${addedVal.toLocaleString()}</span></td>
+                <td><span class="editable-cell" data-year="${row.year}" data-field="withdrawn">${withdrawnVal.toLocaleString()}</span></td>
+                <td><span class="editable-cell" data-year="${row.year}" data-field="interest">${interestVal}</span> %</td>
+                <td class="forecast">${forecastVal.toLocaleString()} ₽</td>
+                <td>${actualVal !== null ? actualVal.toLocaleString() + ' ₽' : '—'}</td>
             </tr>`;
         });
         html += `</tbody></table></div>`;
         yearsPanel.innerHTML = html;
+        // Добавляем обработчики для редактирования ячеек
+        document.querySelectorAll('.editable-cell').forEach(cell => {
+            cell.onclick = (e) => {
+                e.stopPropagation();
+                const year = parseInt(cell.dataset.year);
+                const field = cell.dataset.field;
+                const currentValue = field === 'interest' ? parseFloat(cell.innerText) : parseInt(cell.innerText.replace(/\s/g,''));
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = field === 'interest' ? '0.1' : '1';
+                input.value = currentValue;
+                input.style.width = '100px';
+                input.style.padding = '4px';
+                const parent = cell.parentElement;
+                const originalText = cell.innerText;
+                cell.innerText = '';
+                cell.appendChild(input);
+                input.focus();
+                const save = () => {
+                    let newVal = parseFloat(input.value);
+                    if (isNaN(newVal)) newVal = field === 'interest' ? appData.settings.defaultInterest : 0;
+                    if (field === 'interest') newVal = parseFloat(newVal.toFixed(1));
+                    else newVal = Math.round(newVal);
+                    updateYearlyOverride(year, field, newVal);
+                    cell.innerText = newVal.toLocaleString();
+                    cell.removeChild(input);
+                };
+                input.onblur = save;
+                input.onkeypress = (e) => { if (e.key === 'Enter') save(); };
+            };
+        });
+        // Добавляем график прогноза под таблицей
+        const ctx = document.createElement('canvas');
+        ctx.id = 'forecastChart';
+        ctx.width = 800;
+        ctx.height = 300;
+        ctx.style.maxWidth = '100%';
+        yearsPanel.appendChild(ctx);
+        if (window.forecastChart) window.forecastChart.destroy();
+        const yearsLabels = data.map(r => r.year);
+        const forecastData = data.map(r => r.forecastEnd);
+        const actualData = data.map(r => r.actualEnd);
+        window.forecastChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: yearsLabels,
+                datasets: [
+                    { label: 'Прогноз (конец года)', data: forecastData, borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.1)', tension: 0.3, fill: true },
+                    { label: 'Факт (конец года)', data: actualData, borderColor: '#10B981', backgroundColor: 'transparent', tension: 0.3, borderDash: [5,5] }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw?.toLocaleString()} ₽` } } } }
+        });
     }
 
     function renderMonths() {
         const monthly = new Map();
         let running = 0;
-        [...appData.transactions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t => {
-            running += t.amount;
-            const ym = t.date.slice(0,7);
-            if (!monthly.has(ym)) monthly.set(ym, { added:0, withdrawn:0, balance:0 });
-            const rec = monthly.get(ym);
-            if (t.amount > 0) rec.added += t.amount;
-            else rec.withdrawn += Math.abs(t.amount);
-            rec.balance = running;
-        });
-        if (monthly.size === 0) { monthsPanel.innerHTML = '<p>Нет операций</p>'; return; }
-        let html = `<h3>📅 Помесячная динамика</h3><div class="scroll-table"><table><thead><tr><th>Месяц</th><th>Пополнения</th><th>Снятия</th><th>Чистое</th><th>Баланс</th></tr></thead><tbody>`;
-        for (let [ym, rec] of monthly.entries()) {
-            const net = rec.added - rec.withdrawn;
-            html += `<tr>
-                <td>${ym}</td>
-                <td class="money-positive">${rec.added.toLocaleString()} ₽</td>
-                <td class="money-negative">${rec.withdrawn.toLocaleString()} ₽</td>
-                <td>${net >=0 ? '+' : ''}${net.toLocaleString()} ₽</td>
-                <td><strong>${rec.balance.toLocaleString()} ₽</strong></td>
-            </tr>`;
-        }
-        html += `</tbody></table></div>`;
-        monthsPanel.innerHTML = html;
+        [...appData.transactions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{ running+=t.amount; const ym=t.date.slice(0,7); if(!monthly.has(ym)) monthly.set(ym,{add:0,sub:0,bal:0}); let r=monthly.get(ym); if(t.amount>0) r.add+=t.amount; else r.sub+=Math.abs(t.amount); r.bal=running; });
+        if(monthly.size===0){ monthsPanel.innerHTML='<p>Нет операций</p>'; return; }
+        let html=`<h3>📅 Помесячная динамика</h3><div class="scroll-table"><table><thead><tr><th>Месяц</th><th>Пополнения</th><th>Снятия</th><th>Чистое</th><th>Баланс</th></tr></thead><tbody>`;
+        for(let [ym,rec] of monthly.entries()){ const net=rec.add-rec.sub; html+=`<tr><td>${ym}</td><td class="money-positive">${rec.add.toLocaleString()} ₽</td><td class="money-negative">${rec.sub.toLocaleString()} ₽</td><td>${net>=0?'+':''}${net.toLocaleString()} ₽</td><td><strong>${rec.bal.toLocaleString()} ₽</strong></td></tr>`; }
+        html+=`</tbody></table></div>`;
+        monthsPanel.innerHTML=html;
     }
 
     function renderLog() {
         let filtered = [...appData.transactions];
-        const search = logSearch.value.toLowerCase();
-        const type = logTypeFilter.value;
-        const category = logCategoryFilter.value;
-        const member = logMemberFilter.value;
-        if (search) filtered = filtered.filter(t => (t.description||'').toLowerCase().includes(search) || t.category.toLowerCase().includes(search));
-        if (type === 'income') filtered = filtered.filter(t => t.amount > 0);
-        if (type === 'expense') filtered = filtered.filter(t => t.amount < 0);
-        if (category) filtered = filtered.filter(t => t.category === category);
-        if (member) filtered = filtered.filter(t => t.member === member);
+        const search=logSearch.value.toLowerCase();
+        const type=logTypeFilter.value;
+        const cat=logCategoryFilter.value;
+        const member=logMemberFilter.value;
+        const from=logDateFrom.value;
+        const to=logDateTo.value;
+        if(search) filtered=filtered.filter(t=>(t.description||'').toLowerCase().includes(search)||t.category.toLowerCase().includes(search));
+        if(type==='income') filtered=filtered.filter(t=>t.amount>0);
+        if(type==='expense') filtered=filtered.filter(t=>t.amount<0);
+        if(cat) filtered=filtered.filter(t=>t.category===cat);
+        if(member) filtered=filtered.filter(t=>t.member===member);
+        if(from) filtered=filtered.filter(t=>t.date>=from);
+        if(to) filtered=filtered.filter(t=>t.date<=to);
         filtered.sort((a,b)=>b.date.localeCompare(a.date));
-        if (filtered.length === 0) { logTableContainer.innerHTML = '<p>Нет записей</p>'; return; }
-        let html = `<div class="scroll-table"><table><thead><tr><th>Дата</th><th>Сумма</th><th>Категория</th><th>Участник</th><th>Комментарий</th><th></th></tr></thead><tbody>`;
-        filtered.forEach(t => {
-            const sign = t.amount > 0 ? `+${t.amount.toLocaleString()} ₽` : `${t.amount.toLocaleString()} ₽`;
-            html += `<tr>
-                <td>${t.date}</td>
-                <td class="${t.amount>0?'money-positive':'money-negative'}">${sign}</td>
-                <td><span class="category-badge">${t.category}</span></td>
-                <td>${t.member}</td>
-                <td>${t.description || ''}</td>
-                <td><button class="edit-btn" data-id="${t.id}">✏️</button> <button class="delete-btn" data-id="${t.id}">🗑️</button></td>
-            </tr>`;
+        const allCats = new Set(appData.transactions.map(t=>t.category));
+        logCategoryFilter.innerHTML='<option value="">Все категории</option>'+Array.from(allCats).map(c=>`<option value="${c}">${c}</option>`).join('');
+        logMemberFilter.innerHTML='<option value="">Все участники</option>'+appData.members.map(m=>`<option value="${m}">${m}</option>`).join('');
+        if(filtered.length===0){ logTableContainer.innerHTML='<p>Нет записей</p>'; return; }
+        let html=`<div class="scroll-table"><table><thead><tr><th>Дата</th><th>Сумма</th><th>Категория</th><th>Участник</th><th>Комментарий</th><th></th></tr></thead><tbody>`;
+        filtered.forEach(t=>{
+            html+=`<tr><td>${t.date}</td><td class="${t.amount>0?'money-positive':'money-negative'}">${t.amount>0?'+':''}${t.amount.toLocaleString()} ₽</td><td><span class="category-badge">${t.category}</span></td><td>${t.member}</td><td>${t.description||''}</td><td><button class="edit-btn" data-id="${t.id}">✏️</button> <button class="delete-btn" data-id="${t.id}">🗑️</button></td></tr>`;
         });
-        html += `</tbody></table></div>`;
-        logTableContainer.innerHTML = html;
-        document.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.onclick = () => deleteTransaction(parseInt(btn.dataset.id));
-        });
-        document.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.onclick = () => openEditModal(parseInt(btn.dataset.id));
-        });
+        html+=`</tbody></table></div>`;
+        logTableContainer.innerHTML=html;
+        document.querySelectorAll('.delete-btn').forEach(btn=>btn.onclick=()=>deleteTransaction(parseInt(btn.dataset.id)));
+        document.querySelectorAll('.edit-btn').forEach(btn=>btn.onclick=()=>openEditModal(parseInt(btn.dataset.id)));
     }
 
     function renderAnalytics() {
-        // Сравнение периодов
-        const now = new Date();
-        const thisYear = now.getFullYear();
-        const thisMonth = now.getMonth() + 1;
-        let thisMonthFlow = 0, lastMonthFlow = 0, lastYearMonthFlow = 0;
-        appData.transactions.forEach(t => {
-            const [y,m] = t.date.split('-');
-            if (y == thisYear && m == thisMonth) thisMonthFlow += t.amount;
-            if ((y == thisYear && m == thisMonth-1) || (m == 12 && y == thisYear-1)) lastMonthFlow += t.amount;
-            if (y == thisYear-1 && m == thisMonth) lastYearMonthFlow += t.amount;
-        });
-        document.getElementById('comparePeriods').innerHTML = `
-            <h3>📈 Сравнение</h3>
-            <p>💰 Этот месяц: ${thisMonthFlow.toLocaleString()} ₽</p>
-            <p>📉 Прошлый месяц: ${lastMonthFlow.toLocaleString()} ₽ (${((thisMonthFlow-lastMonthFlow)/lastMonthFlow*100||0).toFixed(1)}%)</p>
-            <p>📆 Аналогичный месяц прошлого года: ${lastYearMonthFlow.toLocaleString()} ₽ (${((thisMonthFlow-lastYearMonthFlow)/lastYearMonthFlow*100||0).toFixed(1)}%)</p>
-        `;
-        // Дни недели
-        const weekday = [0,0,0,0,0,0,0];
-        appData.transactions.forEach(t => {
-            const w = new Date(t.date).getDay();
-            weekday[w] += t.amount;
-        });
-        if (charts.weekday) charts.weekday.destroy();
-        const ctxWeek = document.getElementById('weekdayChart').getContext('2d');
-        charts.weekday = new Chart(ctxWeek, { type: 'bar', data: { labels: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'], datasets: [{ label: 'Чистый поток', data: weekday, backgroundColor: '#F59E0B' }] } });
-        // Круговые диаграммы доходов/расходов
-        const incomeByCat = {}, expenseByCat = {};
-        appData.transactions.forEach(t => {
-            if (t.amount > 0) incomeByCat[t.category] = (incomeByCat[t.category] || 0) + t.amount;
-            else expenseByCat[t.category] = (expenseByCat[t.category] || 0) + Math.abs(t.amount);
-        });
-        if (charts.income) charts.income.destroy();
-        if (charts.expense) charts.expense.destroy();
-        const ctxInc = document.getElementById('incomeChart').getContext('2d');
-        const ctxExp = document.getElementById('expenseChart').getContext('2d');
-        if (Object.keys(incomeByCat).length) charts.income = new Chart(ctxInc, { type: 'pie', data: { labels: Object.keys(incomeByCat), datasets: [{ data: Object.values(incomeByCat), backgroundColor: ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6'] }] } });
-        if (Object.keys(expenseByCat).length) charts.expense = new Chart(ctxExp, { type: 'pie', data: { labels: Object.keys(expenseByCat), datasets: [{ data: Object.values(expenseByCat), backgroundColor: ['#F59E0B','#EF4444','#8B5CF6','#EC4899'] }] } });
+        const now=new Date();
+        const thisYear=now.getFullYear(), thisMonth=now.getMonth()+1;
+        let thisMonthFlow=0, lastMonthFlow=0, lastYearMonthFlow=0;
+        appData.transactions.forEach(t=>{ const [y,m]=t.date.split('-'); if(y==thisYear && m==thisMonth) thisMonthFlow+=t.amount; if((y==thisYear && m==thisMonth-1)||(m==12 && y==thisYear-1)) lastMonthFlow+=t.amount; if(y==thisYear-1 && m==thisMonth) lastYearMonthFlow+=t.amount; });
+        document.getElementById('comparePeriods').innerHTML=`<h3>📈 Сравнение</h3><p>💰 Этот месяц: ${thisMonthFlow.toLocaleString()} ₽</p><p>📉 Прошлый месяц: ${lastMonthFlow.toLocaleString()} ₽ (${((thisMonthFlow-lastMonthFlow)/lastMonthFlow*100||0).toFixed(1)}%)</p><p>📆 Аналогичный месяц прошлого года: ${lastYearMonthFlow.toLocaleString()} ₽ (${((thisMonthFlow-lastYearMonthFlow)/lastYearMonthFlow*100||0).toFixed(1)}%)</p>`;
+        const weekday=[0,0,0,0,0,0,0];
+        appData.transactions.forEach(t=>{ const w=new Date(t.date).getDay(); weekday[w]+=t.amount; });
+        if(charts.weekday) charts.weekday.destroy();
+        charts.weekday=new Chart(document.getElementById('weekdayChart'),{type:'bar',data:{labels:['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],datasets:[{label:'Чистый поток',data:weekday,backgroundColor:'#F59E0B'}]}});
+        const incomeByCat={}, expenseByCat={};
+        appData.transactions.forEach(t=>{ if(t.amount>0) incomeByCat[t.category]=(incomeByCat[t.category]||0)+t.amount; else expenseByCat[t.category]=(expenseByCat[t.category]||0)+Math.abs(t.amount); });
+        if(charts.income) charts.income.destroy();
+        if(charts.expense) charts.expense.destroy();
+        charts.income=new Chart(document.getElementById('incomeChart'),{type:'pie',data:{labels:Object.keys(incomeByCat),datasets:[{data:Object.values(incomeByCat),backgroundColor:['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6']}]}});
+        charts.expense=new Chart(document.getElementById('expenseChart'),{type:'pie',data:{labels:Object.keys(expenseByCat),datasets:[{data:Object.values(expenseByCat),backgroundColor:['#F59E0B','#EF4444','#8B5CF6','#EC4899']}]}});
     }
 
     function renderGoal() {
-        if (appData.goal.target) {
-            const balance = getCurrentBalance();
-            const saved = balance + (appData.goal.initial || 0);
-            const percent = Math.min(100, (saved / appData.goal.target) * 100);
-            let monthlyNeed = 0;
-            if (appData.goal.date) {
-                const today = new Date();
-                const targetDate = new Date(appData.goal.date);
-                const monthsLeft = Math.max(1, (targetDate.getFullYear() - today.getFullYear()) * 12 + (targetDate.getMonth() - today.getMonth()));
-                const needed = Math.max(0, appData.goal.target - saved);
-                monthlyNeed = needed / monthsLeft;
+        if(appData.goal.target){
+            const saved=getCurrentBalance()+(appData.goal.initial||0);
+            const percent=Math.min(100,saved/appData.goal.target*100);
+            let monthlyNeed=0;
+            if(appData.goal.date){
+                const today=new Date(), targetDate=new Date(appData.goal.date);
+                const monthsLeft=Math.max(1,(targetDate.getFullYear()-today.getFullYear())*12+(targetDate.getMonth()-today.getMonth()));
+                const needed=Math.max(0,appData.goal.target-saved);
+                monthlyNeed=needed/monthsLeft;
             }
-            document.getElementById('goalProgressDetail').innerHTML = `
-                <div class="progress-bar"><div class="progress-fill" style="width: ${percent}%;"></div></div>
-                <p>Накоплено: ${saved.toLocaleString()} / ${appData.goal.target.toLocaleString()} ₽ (${percent.toFixed(1)}%)</p>
-                <p>Осталось: ${(appData.goal.target - saved).toLocaleString()} ₽</p>
-                ${monthlyNeed ? `<p>Нужно откладывать ~${monthlyNeed.toLocaleString()} ₽ в месяц</p>` : ''}
-                <p>Дата цели: ${appData.goal.date || 'не задана'}</p>
-            `;
-        } else {
-            document.getElementById('goalProgressDetail').innerHTML = '<p>Цель не задана. Заполните форму выше.</p>';
-        }
+            document.getElementById('goalProgressDetail').innerHTML=`<div class="progress-bar"><div class="progress-fill" style="width:${percent}%;"></div></div><p>Накоплено: ${saved.toLocaleString()} / ${appData.goal.target.toLocaleString()} ₽ (${percent.toFixed(1)}%)</p><p>Осталось: ${(appData.goal.target-saved).toLocaleString()} ₽</p>${monthlyNeed?`<p>Нужно откладывать ~${monthlyNeed.toLocaleString()} ₽/мес</p>`:''}<p>Дата: ${appData.goal.date||'не задана'}</p>`;
+        }else document.getElementById('goalProgressDetail').innerHTML='<p>Цель не задана. Заполните форму выше.</p>';
     }
 
     function renderBudgets() {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth() + 1;
-        const start = `${year}-${String(month).padStart(2,'0')}-01`;
-        const end = `${year}-${String(month).padStart(2,'0')}-${new Date(year, month, 0).getDate()}`;
-        const spent = {};
-        appData.transactions.forEach(t => {
-            if (t.date >= start && t.date <= end && t.amount < 0) {
-                spent[t.category] = (spent[t.category] || 0) + Math.abs(t.amount);
-            }
-        });
-        let html = '';
-        for (let cat in appData.budgets) {
-            const limit = appData.budgets[cat];
-            const used = spent[cat] || 0;
-            const percent = (used / limit) * 100;
-            let color = '#10B981';
-            if (percent >= 100) color = '#EF4444';
-            else if (percent >= 80) color = '#F59E0B';
-            html += `<div><strong>${cat}</strong>: ${used.toLocaleString()} / ${limit.toLocaleString()} ₽</div>
-                     <div class="progress-bar"><div style="width: ${Math.min(100,percent)}%; height:8px; background:${color}; border-radius:20px;"></div></div>`;
+        const now=new Date(), year=now.getFullYear(), month=now.getMonth()+1;
+        const start=`${year}-${String(month).padStart(2,'0')}-01`;
+        const end=`${year}-${String(month).padStart(2,'0')}-${new Date(year,month,0).getDate()}`;
+        const spent={};
+        appData.transactions.forEach(t=>{ if(t.date>=start && t.date<=end && t.amount<0) spent[t.category]=(spent[t.category]||0)+Math.abs(t.amount); });
+        let html='';
+        for(let cat in appData.budgets){
+            const limit=appData.budgets[cat], used=spent[cat]||0, percent=used/limit*100;
+            let color='#10B981'; if(percent>=100) color='#EF4444'; else if(percent>=80) color='#F59E0B';
+            html+=`<div><strong>${cat}</strong>: ${used.toLocaleString()} / ${limit.toLocaleString()} ₽</div><div class="progress-bar"><div style="width:${Math.min(100,percent)}%; height:8px; background:${color}; border-radius:20px;"></div></div>`;
         }
-        budgetsListDiv.innerHTML = html || '<p>Нет установленных бюджетов</p>';
-        // Обновить селект категорий
-        const allCats = new Set(appData.transactions.map(t => t.category));
-        budgetCategorySelect.innerHTML = Array.from(allCats).map(c => `<option value="${c}">${c}</option>`).join('');
+        document.getElementById('budgetsList').innerHTML=html||'<p>Нет установленных бюджетов</p>';
+        const allCats=new Set(appData.transactions.map(t=>t.category));
+        budgetCategorySelect.innerHTML=Array.from(allCats).map(c=>`<option value="${c}">${c}</option>`).join('');
     }
 
     function renderMembers() {
-        membersListDiv.innerHTML = appData.members.map(m => `<span class="category-badge" style="margin:4px;">${m} <button class="remove-member" data-member="${m}" style="background:none; border:none; color:red;">✖</button></span>`).join('');
-        document.querySelectorAll('.remove-member').forEach(btn => {
-            btn.onclick = () => {
-                const member = btn.dataset.member;
-                pushState();
-                appData.members = appData.members.filter(m => m !== member);
-                saveToLocalStorage();
-                renderMembers();
-                renderLog();
-            };
-        });
-        // Обновить фильтр участников в логе
-        logMemberFilter.innerHTML = '<option value="">Все участники</option>' + appData.members.map(m => `<option value="${m}">${m}</option>`).join('');
+        document.getElementById('membersList').innerHTML=appData.members.map(m=>`<span class="category-badge" style="margin:4px;">${m} <button class="remove-member" data-member="${m}" style="background:none; border:none; color:red;">✖</button></span>`).join('');
+        document.querySelectorAll('.remove-member').forEach(btn=>btn.onclick=()=>{ pushState(); appData.members=appData.members.filter(m=>m!==btn.dataset.member); saveToLocalStoragePlain(); renderMembers(); renderLog(); });
     }
 
     function renderSettings() {
-        globalPercent.value = appData.settings.defaultInterest;
-        if (appData.settings.interestType === 'compound') document.querySelector('input[value="compound"]').checked = true;
-        else document.querySelector('input[value="simple"]').checked = true;
+        globalPercent.value=appData.settings.defaultInterest;
+        if(appData.settings.interestType==='compound') document.querySelector('input[value="compound"]').checked=true;
+        else document.querySelector('input[value="simple"]').checked=true;
+        notifyBudgetChk.checked=appData.settings.notifyBudget;
+        notifyGoalChk.checked=appData.settings.notifyGoal;
     }
 
     function renderAll() {
+        if(!authenticated) return;
         renderDashboard();
         renderYears();
         renderMonths();
@@ -620,222 +736,182 @@
         renderBudgets();
         renderMembers();
         renderSettings();
-        // Показать активную вкладку
-        const panels = { years: yearsPanel, months: monthsPanel, log: document.getElementById('logPanel'), analytics: analyticsPanel, goal: goalPanel, budget: budgetPanel, members: membersPanel, settings: settingsPanel };
-        for (let p in panels) panels[p].style.display = 'none';
-        panels[activeTab].style.display = 'block';
-        // Подсветка кнопок вкладок
-        const btns = { years: tabYears, months: tabMonths, log: tabLog, analytics: tabAnalytics, goal: tabGoal, budget: tabBudget, members: tabMembers, settings: tabSettings };
-        for (let p in btns) btns[p].classList.remove('btn-accent');
+        const panels={years:yearsPanel,months:monthsPanel,log:document.getElementById('logPanel'),analytics:document.getElementById('analyticsPanel'),goal:document.getElementById('goalPanel'),budget:document.getElementById('budgetPanel'),members:document.getElementById('membersPanel'),settings:document.getElementById('settingsPanel')};
+        for(let p in panels) panels[p].style.display='none';
+        panels[activeTab].style.display='block';
+        const btns={years:tabYears,months:tabMonths,log:tabLog,analytics:tabAnalytics,goal:tabGoal,budget:tabBudget,members:tabMembers,settings:tabSettings};
+        for(let p in btns) btns[p].classList.remove('btn-accent');
         btns[activeTab].classList.add('btn-accent');
+        saveToLocalStoragePlain();
     }
 
     // ======================== МОДАЛЬНЫЕ ОКНА ========================
     function openAddModal(type) {
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.style.display = 'flex';
-        const isIncome = type === 'income';
-        modal.innerHTML = `
-            <div class="modal-card">
-                <h3>${isIncome ? '➕ Добавить доход' : '➖ Расход'}</h3>
-                <div class="form-group"><label>Сумма (₽)</label><input type="number" id="modalAmount" step="1" value="1000"></div>
-                <div class="form-group"><label>Дата</label><input type="date" id="modalDate" value="${new Date().toISOString().slice(0,10)}"></div>
-                <div class="form-group"><label>Категория</label><select id="modalCategory">${getCategoryOptions()}</select></div>
-                <div class="form-group"><label>Участник</label><select id="modalMember">${appData.members.map(m => `<option value="${m}">${m}</option>`).join('')}</select></div>
-                <div class="form-group"><label>Комментарий</label><input type="text" id="modalDesc"></div>
-                <div class="flex-row" style="justify-content: flex-end;">
-                    <button id="modalCancel" class="btn-outline">Отмена</button>
-                    <button id="modalSave" class="btn-accent">Сохранить</button>
-                </div>
-            </div>
-        `;
+        const modal=document.createElement('div'); modal.className='modal'; modal.style.display='flex';
+        const isIncome=type==='income';
+        modal.innerHTML=`<div class="modal-card"><h3>${isIncome?'➕ Добавить доход':'➖ Расход'}</h3><div class="form-group"><label>Сумма (₽)</label><input type="number" id="modalAmount" step="1" value="1000"></div><div class="form-group"><label>Дата</label><input type="date" id="modalDate" value="${new Date().toISOString().slice(0,10)}"></div><div class="form-group"><label>Категория</label><select id="modalCategory">${getCategoryOptions()}</select></div><div class="form-group"><label>Участник</label><select id="modalMember">${appData.members.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div><div class="form-group"><label>Комментарий</label><input type="text" id="modalDesc"></div><div class="flex-row" style="justify-content:flex-end;"><button id="modalCancel" class="btn-outline">Отмена</button><button id="modalSave" class="btn-accent">Сохранить</button></div></div>`;
         document.body.appendChild(modal);
-        document.getElementById('modalCancel').onclick = () => modal.remove();
-        document.getElementById('modalSave').onclick = () => {
-            const amount = parseFloat(document.getElementById('modalAmount').value);
-            if (isNaN(amount) || amount <= 0) { alert('Введите сумму > 0'); return; }
-            const date = document.getElementById('modalDate').value;
-            const category = document.getElementById('modalCategory').value;
-            const member = document.getElementById('modalMember').value;
-            const desc = document.getElementById('modalDesc').value;
-            addTransaction(amount, type, date, category, member, desc);
+        document.getElementById('modalCancel').onclick=()=>modal.remove();
+        document.getElementById('modalSave').onclick=()=>{
+            const amount=parseFloat(document.getElementById('modalAmount').value);
+            if(isNaN(amount)||amount<=0){alert('Введите сумму >0'); return;}
+            addTransaction(amount, type, document.getElementById('modalDate').value, document.getElementById('modalCategory').value, document.getElementById('modalMember').value, document.getElementById('modalDesc').value);
             modal.remove();
         };
     }
-
-    function openEditModal(id) {
-        const txn = appData.transactions.find(t => t.id === id);
-        if (!txn) return;
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.style.display = 'flex';
-        modal.innerHTML = `
-            <div class="modal-card">
-                <h3>✏️ Редактировать</h3>
-                <div class="form-group"><label>Сумма (₽)</label><input type="number" id="modalAmount" step="1" value="${Math.abs(txn.amount)}"></div>
-                <div class="form-group"><label>Дата</label><input type="date" id="modalDate" value="${txn.date}"></div>
-                <div class="form-group"><label>Категория</label><select id="modalCategory">${getCategoryOptions(txn.category)}</select></div>
-                <div class="form-group"><label>Участник</label><select id="modalMember">${appData.members.map(m => `<option value="${m}" ${m === txn.member ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-                <div class="form-group"><label>Комментарий</label><input type="text" id="modalDesc" value="${txn.description || ''}"></div>
-                <div class="flex-row" style="justify-content: flex-end;">
-                    <button id="modalCancel" class="btn-outline">Отмена</button>
-                    <button id="modalSave" class="btn-accent">Сохранить</button>
-                </div>
-            </div>
-        `;
+    function openEditModal(id){
+        const txn=appData.transactions.find(t=>t.id===id);
+        if(!txn) return;
+        const modal=document.createElement('div'); modal.className='modal'; modal.style.display='flex';
+        modal.innerHTML=`<div class="modal-card"><h3>✏️ Редактировать</h3><div class="form-group"><label>Сумма (₽)</label><input type="number" id="modalAmount" step="1" value="${Math.abs(txn.amount)}"></div><div class="form-group"><label>Дата</label><input type="date" id="modalDate" value="${txn.date}"></div><div class="form-group"><label>Категория</label><select id="modalCategory">${getCategoryOptions(txn.category)}</select></div><div class="form-group"><label>Участник</label><select id="modalMember">${appData.members.map(m=>`<option value="${m}" ${m===txn.member?'selected':''}>${m}</option>`).join('')}</select></div><div class="form-group"><label>Комментарий</label><input type="text" id="modalDesc" value="${txn.description||''}"></div><div class="flex-row" style="justify-content:flex-end;"><button id="modalCancel" class="btn-outline">Отмена</button><button id="modalSave" class="btn-accent">Сохранить</button></div></div>`;
         document.body.appendChild(modal);
-        document.getElementById('modalCancel').onclick = () => modal.remove();
-        document.getElementById('modalSave').onclick = () => {
-            const amount = parseFloat(document.getElementById('modalAmount').value);
-            if (isNaN(amount) || amount <= 0) { alert('Введите сумму > 0'); return; }
-            const finalAmount = txn.amount > 0 ? amount : -amount;
-            updateTransaction(id, {
-                amount: finalAmount,
-                date: document.getElementById('modalDate').value,
-                category: document.getElementById('modalCategory').value,
-                member: document.getElementById('modalMember').value,
-                description: document.getElementById('modalDesc').value
-            });
+        document.getElementById('modalCancel').onclick=()=>modal.remove();
+        document.getElementById('modalSave').onclick=()=>{
+            const amount=parseFloat(document.getElementById('modalAmount').value);
+            if(isNaN(amount)||amount<=0){alert('Введите сумму >0'); return;}
+            const finalAmount=txn.amount>0?amount:-amount;
+            updateTransaction(id, { amount:finalAmount, date:document.getElementById('modalDate').value, category:document.getElementById('modalCategory').value, member:document.getElementById('modalMember').value, description:document.getElementById('modalDesc').value });
             modal.remove();
         };
     }
-
-    function getCategoryOptions(selected = '') {
-        const defaultCats = ['💰 Зарплата', '🎁 Подарок', '🍔 Еда', '🚗 Транспорт', '🏠 Жильё', '💊 Здоровье', '🎉 Развлечения', '📚 Образование', '💼 Инвестиции', '📦 Другое'];
-        return defaultCats.map(c => `<option value="${c}" ${c === selected ? 'selected' : ''}>${c}</option>`).join('');
+    function getCategoryOptions(selected=''){
+        const cats=['💰 Зарплата','🎁 Подарок','🍔 Еда','🚗 Транспорт','🏠 Жильё','💊 Здоровье','🎉 Развлечения','📚 Образование','💼 Инвестиции','📦 Другое'];
+        return cats.map(c=>`<option value="${c}" ${c===selected?'selected':''}>${c}</option>`).join('');
     }
 
-    // ======================== ЭКСПОРТ / ИМПОРТ JSON ========================
-    function exportToJson() {
-        const dataStr = JSON.stringify(appData, null, 2);
-        const blob = new Blob([dataStr], {type: 'application/json'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `savings_backup_${new Date().toISOString().slice(0,19)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+    // ======================== СКАНЕР ЧЕКА ========================
+    async function scanReceipt(){
+        try{
+            const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+            const video=document.createElement('video'); video.srcObject=stream; video.play();
+            const canvas=document.createElement('canvas'); const ctx=canvas.getContext('2d');
+            const modalScan=document.createElement('div'); modalScan.className='modal'; modalScan.style.display='flex';
+            modalScan.innerHTML=`<div class="card modal-card"><video autoplay style="width:100%;"></video><div class="flex-row" style="margin-top:12px;"><button id="captureBtn">Снять кадр</button><button id="closeScan">Закрыть</button></div></div>`;
+            document.body.appendChild(modalScan);
+            const vidElem=modalScan.querySelector('video'); vidElem.srcObject=stream;
+            modalScan.querySelector('#captureBtn').onclick=()=>{
+                canvas.width=vidElem.videoWidth; canvas.height=vidElem.videoHeight;
+                ctx.drawImage(vidElem,0,0,canvas.width,canvas.height);
+                const imageData=canvas.toDataURL('image/png');
+                Tesseract.recognize(imageData,'rus+eng',{logger:m=>console.log(m)}).then(({data:{text}})=>{
+                    const match=text.match(/(\d+[ ,.]?\d*)\s*₽?руб?/i);
+                    if(match){ const amount=parseFloat(match[1].replace(',','.')); document.getElementById('modalAmount').value=amount; alert(`Найдена сумма: ${amount} ₽`); }
+                    stream.getTracks().forEach(t=>t.stop()); modalScan.remove();
+                });
+            };
+            modalScan.querySelector('#closeScan').onclick=()=>{ stream.getTracks().forEach(t=>t.stop()); modalScan.remove(); };
+        }catch(e){ alert('Нет доступа к камере'); }
     }
 
-    function importFromJson(file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const imported = JSON.parse(e.target.result);
+    // ======================== ЭКСПОРТ/ИМПОРТ JSON ========================
+    function exportToJson(){
+        const dataStr=JSON.stringify(appData,null,2);
+        const blob=new Blob([dataStr],{type:'application/json'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a'); a.href=url; a.download=`savings_${new Date().toISOString().slice(0,19)}.json`; a.click(); URL.revokeObjectURL(url);
+    }
+    function importFromJson(file){
+        const reader=new FileReader();
+        reader.onload=e=>{
+            try{
+                const imported=JSON.parse(e.target.result);
                 pushState();
-                appData = imported;
-                // Гарантируем структуру
-                if (!appData.transactions) appData.transactions = [];
-                if (!appData.budgets) appData.budgets = {};
-                if (!appData.members) appData.members = ["Я", "Супруг(а)", "Дети"];
-                if (!appData.goal) appData.goal = { name: "", target: 0, date: "", initial: 0 };
-                if (!appData.settings) appData.settings = { darkMode: false, defaultInterest: 5, interestType: "simple", pinHash: "" };
-                saveToLocalStorage();
+                appData=imported;
+                if(!appData.yearlyOverrides) appData.yearlyOverrides={};
+                if(!appData.settings.widgets) appData.settings.widgets=["balance","goal","recent"];
+                saveToLocalStoragePlain();
                 renderAll();
-                alert('Импорт успешно выполнен');
-            } catch(err) {
-                alert('Ошибка при импорте: неверный формат файла');
-            }
+                alert('Импорт успешен');
+            }catch(err){ alert('Ошибка файла'); }
         };
         reader.readAsText(file);
     }
 
-    // ======================== НАСТРОЙКИ ========================
-    function toggleTheme() {
-        appData.settings.darkMode = !appData.settings.darkMode;
-        if (appData.settings.darkMode) document.body.classList.add('dark');
-        else document.body.classList.remove('dark');
-        saveToLocalStorage();
+    // ======================== АУТЕНТИФИКАЦИЯ ========================
+    async function unlock(pin){
+        const storedHash=localStorage.getItem('pin_hash');
+        if(storedHash && storedHash===simpleHash(pin)){
+            pinHash=pin;
+            await loadEncrypted();
+            authenticated=true;
+            pinScreen.style.display='none';
+            appContentDiv.style.display='block';
+            renderAll();
+        }else{ pinError.innerText='Неверный PIN'; }
     }
-
-    function savePin() {
-        const pin = pinCodeInput.value;
-        if (pin.length === 4 && /^\d+$/.test(pin)) {
-            appData.settings.pinHash = btoa(pin); // простое кодирование, не шифрование
-            saveToLocalStorage();
-            alert('PIN сохранён. При перезагрузке приложение запросит PIN.');
-        } else {
-            alert('PIN должен быть 4 цифры');
+    function simpleHash(str){ let h=0; for(let i=0;i<str.length;i++) h=((h<<5)-h)+str.charCodeAt(i)|0; return h.toString(); }
+    function lock(){ authenticated=false; pinScreen.style.display='flex'; appContentDiv.style.display='none'; pinInput.value=''; pinError.innerText=''; }
+    async function setNewPin(){
+        const newPin=pinCodeInput.value;
+        if(newPin.length===4 && /^\d+$/.test(newPin)){
+            pinHash=simpleHash(newPin);
+            await saveEncrypted();
+            localStorage.setItem('pin_hash',pinHash);
+            alert('PIN сохранён, данные зашифрованы. Перезагрузите приложение.');
+        }else alert('PIN должен быть 4 цифры');
+    }
+    function resetPinAndData(){
+        if(confirm('Сбросить PIN и удалить все данные?')){
+            localStorage.removeItem('savings_enc');
+            localStorage.removeItem('pin_hash');
+            localStorage.removeItem('savings_app_data');
+            location.reload();
         }
     }
 
     // ======================== ИНИЦИАЛИЗАЦИЯ ========================
-    function init() {
-        loadFromLocalStorage();
-        renderAll();
-
-        // Обработчики кнопок
-        openAddBtn.onclick = () => openAddModal('income');
-        openExpenseBtn.onclick = () => openAddModal('expense');
-        undoBtn.onclick = undo;
-        redoBtn.onclick = redo;
-        exportJsonBtn.onclick = exportToJson;
-        importJsonBtn.onclick = () => importFileInput.click();
-        importFileInput.onchange = (e) => { if (e.target.files[0]) importFromJson(e.target.files[0]); e.target.value = ''; };
-        themeToggle.onclick = toggleTheme;
-        darkModeToggle.onclick = toggleTheme;
-        saveGoalBtn.onclick = () => {
-            pushState();
-            appData.goal = {
-                name: goalName.value,
-                target: parseFloat(goalTarget.value) || 0,
-                date: goalDate.value,
-                initial: parseFloat(goalInitial.value) || 0
-            };
-            saveToLocalStorage();
+    async function init(){
+        const storedHash=localStorage.getItem('pin_hash');
+        if(storedHash){
+            pinScreen.style.display='flex';
+            appContentDiv.style.display='none';
+        }else{
+            authenticated=true;
+            pinScreen.style.display='none';
+            appContentDiv.style.display='block';
+            await loadEncrypted();
             renderAll();
-        };
-        setBudgetBtn.onclick = () => {
-            const cat = budgetCategorySelect.value;
-            const limit = parseFloat(budgetLimit.value);
-            if (cat && !isNaN(limit) && limit > 0) {
-                pushState();
-                appData.budgets[cat] = limit;
-                saveToLocalStorage();
-                renderBudgets();
-            } else alert('Выберите категорию и введите лимит');
-        };
-        addMemberBtn.onclick = () => {
-            const name = newMemberName.value.trim();
-            if (name && !appData.members.includes(name)) {
-                pushState();
-                appData.members.push(name);
-                saveToLocalStorage();
-                renderMembers();
-                renderLog();
-                newMemberName.value = '';
-            }
-        };
-        savePinBtn.onclick = savePin;
-        globalPercent.onchange = () => {
-            appData.settings.defaultInterest = parseFloat(globalPercent.value);
-            saveToLocalStorage();
-            renderYears();
-        };
-        document.querySelectorAll('input[name="interestType"]').forEach(radio => {
-            radio.onchange = () => {
-                appData.settings.interestType = document.querySelector('input[name="interestType"]:checked').value;
-                saveToLocalStorage();
-                renderYears();
-            };
-        });
-        logSearch.oninput = renderLog;
-        logTypeFilter.onchange = renderLog;
-        logCategoryFilter.onchange = renderLog;
-        logMemberFilter.onchange = renderLog;
-
-        // Вкладки
-        tabYears.onclick = () => { activeTab = 'years'; renderAll(); };
-        tabMonths.onclick = () => { activeTab = 'months'; renderAll(); };
-        tabLog.onclick = () => { activeTab = 'log'; renderAll(); };
-        tabAnalytics.onclick = () => { activeTab = 'analytics'; renderAll(); };
-        tabGoal.onclick = () => { activeTab = 'goal'; renderAll(); };
-        tabBudget.onclick = () => { activeTab = 'budget'; renderAll(); };
-        tabMembers.onclick = () => { activeTab = 'members'; renderAll(); };
-        tabSettings.onclick = () => { activeTab = 'settings'; renderAll(); };
+        }
+        themeToggle.onclick=()=>{ appData.settings.darkMode=!appData.settings.darkMode; applySettings(); saveToLocalStoragePlain(); renderAll(); };
+        darkModeToggle.onclick=()=>{ appData.settings.darkMode=!appData.settings.darkMode; applySettings(); saveToLocalStoragePlain(); renderAll(); };
+        lockBtn.onclick=lock;
+        undoBtn.onclick=undo;
+        redoBtn.onclick=redo;
+        scanBtn.onclick=scanReceipt;
+        exportJson.onclick=exportToJson;
+        importJson.onclick=()=>importFile.click();
+        importFile.onchange=e=>{ if(e.target.files[0]) importFromJson(e.target.files[0]); e.target.value=''; };
+        openAdd.onclick=()=>openAddModal('income');
+        openExpense.onclick=()=>openAddModal('expense');
+        saveGoalBtn.onclick=()=>{ pushState(); appData.goal={ name:goalName.value, target:parseFloat(goalTarget.value)||0, date:goalDate.value, initial:parseFloat(goalInitial.value)||0 }; saveToLocalStoragePlain(); renderAll(); };
+        setBudgetBtn.onclick=()=>{ const cat=budgetCategorySelect.value, limit=parseFloat(budgetLimit.value); if(cat && !isNaN(limit) && limit>0){ pushState(); appData.budgets[cat]=limit; saveToLocalStoragePlain(); renderBudgets(); } else alert('Выберите категорию и лимит'); };
+        addMemberBtn.onclick=()=>{ const name=newMemberName.value.trim(); if(name && !appData.members.includes(name)){ pushState(); appData.members.push(name); saveToLocalStoragePlain(); renderMembers(); renderLog(); newMemberName.value=''; } };
+        savePinBtn.onclick=setNewPin;
+        pinResetBtn.onclick=resetPinAndData;
+        requestNotifyBtn.onclick=requestNotifyPermission;
+        globalPercent.onchange=()=>{ appData.settings.defaultInterest=parseFloat(globalPercent.value); saveToLocalStoragePlain(); renderYears(); };
+        document.querySelectorAll('input[name="interestType"]').forEach(r=>r.onchange=()=>{ appData.settings.interestType=document.querySelector('input[name="interestType"]:checked').value; saveToLocalStoragePlain(); renderYears(); });
+        notifyBudgetChk.onchange=()=>{ appData.settings.notifyBudget=notifyBudgetChk.checked; saveToLocalStoragePlain(); };
+        notifyGoalChk.onchange=()=>{ appData.settings.notifyGoal=notifyGoalChk.checked; saveToLocalStoragePlain(); };
+        logSearch.oninput=renderLog;
+        logTypeFilter.onchange=renderLog;
+        logCategoryFilter.onchange=renderLog;
+        logMemberFilter.onchange=renderLog;
+        logDateFrom.onchange=renderLog;
+        logDateTo.onchange=renderLog;
+        tabYears.onclick=()=>{ activeTab='years'; renderAll(); };
+        tabMonths.onclick=()=>{ activeTab='months'; renderAll(); };
+        tabLog.onclick=()=>{ activeTab='log'; renderAll(); };
+        tabAnalytics.onclick=()=>{ activeTab='analytics'; renderAll(); };
+        tabGoal.onclick=()=>{ activeTab='goal'; renderAll(); };
+        tabBudget.onclick=()=>{ activeTab='budget'; renderAll(); };
+        tabMembers.onclick=()=>{ activeTab='members'; renderAll(); };
+        tabSettings.onclick=()=>{ activeTab='settings'; renderAll(); };
+        pinUnlockBtn.onclick=()=>unlock(pinInput.value);
+        pinInput.addEventListener('keypress',e=>{ if(e.key==='Enter') unlock(pinInput.value); });
+        window.onclick=e=>{ if(e.target.classList && e.target.classList.contains('modal')) e.target.remove(); };
+        setInterval(()=>{ if(authenticated){ checkBudgetNotifications(); checkGoalNotification(); } }, 3600000);
     }
-
     init();
 </script>
 </body>
